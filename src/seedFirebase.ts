@@ -1,8 +1,9 @@
 /**
  * Auto-seeds Firebase Realtime Database with realistic mock data when
- * the app loads in development and the database is empty.
+ * the app loads and the database is empty (dev or production).
  *
- * Imported once from main.tsx — does nothing in production builds.
+ * Imported once from main.tsx. Safe to run in all environments —
+ * it checks /stats first and skips immediately if data already exists.
  */
 
 import { ref, get, set } from 'firebase/database'
@@ -88,7 +89,5 @@ async function seedIfEmpty() {
   }
 }
 
-// Only seed in development; tree-shaken away in production builds
-if (import.meta.env.DEV) {
-  seedIfEmpty()
-}
+// Run in all environments — seedIfEmpty() no-ops if data already exists
+seedIfEmpty()
