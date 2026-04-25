@@ -21,18 +21,18 @@ Optional env vars:
 """
 
 import os
-import re
 import sys
 import time
 import uuid
+import json
 import base64
-import queue
 import socket
 import logging
 import threading
 import subprocess
 import http.server
 import socketserver
+import urllib.request
 from datetime import datetime
 
 import cv2
@@ -151,46 +151,42 @@ def get_local_ip() -> str:
         s.close()
 
 
-# ── Cloudflare Quick Tunnel (auto HTTPS) ──────────────────────────────────────
-def start_cloudflare_tunnel(port: int, timeout: float = 20.0) -> str | None:
+# ── ngrok Tunnel (auto HTTPS) ─────────────────────────────────────────────────
+def start_ngrok_tunnel(port: int, wait: float = 15.0) -> str | None:
     """
-    Launch `cloudflared tunnel --url http://localhost:<port>` and return the
-    public HTTPS URL (e.g. https://abc-def.trycloudflare.com).
-    Returns None if cloudflared is not installed or the URL doesn't appear
-    within `timeout` seconds.
+    Launch `ngrok http <port>` and return the public HTTPS URL by querying
+    ngrok's local API at http://localhost:4040/api/tunnels.
+    Returns None if ngrok is not installed or no URL appears within `wait` s.
     """
-    url_q: queue.Queue[str] = queue.Queue()
-
-    def _read_output(proc: subprocess.Popen) -> None:
-        # cloudflared writes the public URL to stderr
-        assert proc.stderr is not None
-        for line in proc.stderr:
-            m = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
-            if m:
-                url_q.put(m.group(0))
-                return
-
     try:
-        proc = subprocess.Popen(
-            ["cloudflared", "tunnel", "--url", f"http://localhost:{port}"],
+        subprocess.Popen(
+            ["ngrok", "http", str(port)],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
+            stderr=subprocess.DEVNULL,
         )
-        threading.Thread(target=_read_output, args=(proc,), daemon=True).start()
-        try:
-            url = url_q.get(timeout=timeout)
-            log.info("Cloudflare tunnel active → %s", url)
-            return url
-        except queue.Empty:
-            log.warning("cloudflared started but no URL appeared within %ds", int(timeout))
-            return None
     except FileNotFoundError:
-        log.info("cloudflared not installed — using local IP (stream embeds only on same network)")
+        log.info("ngrok not installed — using local IP (stream embeds only on same network)")
         return None
     except Exception as exc:
-        log.warning("cloudflared error: %s", exc)
+        log.warning("ngrok launch error: %s", exc)
         return None
+
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        time.sleep(1)
+        try:
+            with urllib.request.urlopen("http://localhost:4040/api/tunnels", timeout=2) as r:
+                data = json.loads(r.read())
+                for t in data.get("tunnels", []):
+                    if t.get("proto") == "https":
+                        url = t["public_url"] + "/stream"
+                        log.info("ngrok tunnel active → %s", url)
+                        return url
+        except Exception:
+            continue
+
+    log.warning("ngrok started but no HTTPS URL appeared within %ds", int(wait))
+    return None
 
 
 # ── Firebase init ──────────────────────────────────────────────────────────────
@@ -389,14 +385,14 @@ def main() -> None:
     start_mjpeg_server(frame_buf, STREAM_PORT)
 
     # Determine stream URL to publish to Firebase.
-    # Priority: STREAM_HOST env var → Cloudflare tunnel (HTTPS) → local IP (HTTP)
+    # Priority: STREAM_HOST env var → ngrok tunnel (HTTPS) → local IP (HTTP)
     if STREAM_HOST:
         stream_url = f"http://{STREAM_HOST}:{STREAM_PORT}/stream"
     else:
-        log.info("Starting Cloudflare tunnel for HTTPS stream URL…")
-        tunnel_url = start_cloudflare_tunnel(STREAM_PORT)
+        log.info("Starting ngrok tunnel for HTTPS stream URL…")
+        tunnel_url = start_ngrok_tunnel(STREAM_PORT)
         if tunnel_url:
-            stream_url = tunnel_url  # already ends with the tunnel path
+            stream_url = tunnel_url
         else:
             host = get_local_ip()
             stream_url = f"http://{host}:{STREAM_PORT}/stream"
