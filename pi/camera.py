@@ -21,13 +21,16 @@ Optional env vars:
 """
 
 import os
+import re
 import sys
 import time
 import uuid
 import base64
+import queue
 import socket
 import logging
 import threading
+import subprocess
 import http.server
 import socketserver
 from datetime import datetime
@@ -146,6 +149,48 @@ def get_local_ip() -> str:
         return "127.0.0.1"
     finally:
         s.close()
+
+
+# ── Cloudflare Quick Tunnel (auto HTTPS) ──────────────────────────────────────
+def start_cloudflare_tunnel(port: int, timeout: float = 20.0) -> str | None:
+    """
+    Launch `cloudflared tunnel --url http://localhost:<port>` and return the
+    public HTTPS URL (e.g. https://abc-def.trycloudflare.com).
+    Returns None if cloudflared is not installed or the URL doesn't appear
+    within `timeout` seconds.
+    """
+    url_q: queue.Queue[str] = queue.Queue()
+
+    def _read_output(proc: subprocess.Popen) -> None:
+        # cloudflared writes the public URL to stderr
+        assert proc.stderr is not None
+        for line in proc.stderr:
+            m = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
+            if m:
+                url_q.put(m.group(0))
+                return
+
+    try:
+        proc = subprocess.Popen(
+            ["cloudflared", "tunnel", "--url", f"http://localhost:{port}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        threading.Thread(target=_read_output, args=(proc,), daemon=True).start()
+        try:
+            url = url_q.get(timeout=timeout)
+            log.info("Cloudflare tunnel active → %s", url)
+            return url
+        except queue.Empty:
+            log.warning("cloudflared started but no URL appeared within %ds", int(timeout))
+            return None
+    except FileNotFoundError:
+        log.info("cloudflared not installed — using local IP (stream embeds only on same network)")
+        return None
+    except Exception as exc:
+        log.warning("cloudflared error: %s", exc)
+        return None
 
 
 # ── Firebase init ──────────────────────────────────────────────────────────────
@@ -343,9 +388,19 @@ def main() -> None:
     frame_buf = FrameBuffer()
     start_mjpeg_server(frame_buf, STREAM_PORT)
 
-    # Determine stream URL to publish to Firebase
-    host = STREAM_HOST or get_local_ip()
-    stream_url = f"http://{host}:{STREAM_PORT}/stream"
+    # Determine stream URL to publish to Firebase.
+    # Priority: STREAM_HOST env var → Cloudflare tunnel (HTTPS) → local IP (HTTP)
+    if STREAM_HOST:
+        stream_url = f"http://{STREAM_HOST}:{STREAM_PORT}/stream"
+    else:
+        log.info("Starting Cloudflare tunnel for HTTPS stream URL…")
+        tunnel_url = start_cloudflare_tunnel(STREAM_PORT)
+        if tunnel_url:
+            stream_url = tunnel_url  # already ends with the tunnel path
+        else:
+            host = get_local_ip()
+            stream_url = f"http://{host}:{STREAM_PORT}/stream"
+            log.info("Falling back to local stream URL: %s", stream_url)
 
     log.info("Opening camera index %d …", CAMERA_INDEX)
     cap = cv2.VideoCapture(CAMERA_INDEX)

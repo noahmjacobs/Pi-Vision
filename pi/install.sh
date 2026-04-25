@@ -71,7 +71,28 @@ pip install \
 
 info "Python packages installed ✓"
 
-# ── 4. Verify camera is accessible ────────────────────────────────────────────
+# ── 4. Install cloudflared (free HTTPS tunnel so the dashboard can embed the stream) ──
+if command -v cloudflared &>/dev/null; then
+    info "cloudflared already installed ✓"
+else
+    info "Installing cloudflared for HTTPS stream tunneling…"
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        aarch64) CF_FILE="cloudflared-linux-arm64" ;;
+        armv7l)  CF_FILE="cloudflared-linux-arm"   ;;
+        x86_64)  CF_FILE="cloudflared-linux-amd64" ;;
+        *)       CF_FILE="cloudflared-linux-arm64" ;;
+    esac
+    CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_FILE}"
+    if curl -fsSL "$CF_URL" -o /tmp/cloudflared; then
+        sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
+        info "cloudflared installed ✓  ($(cloudflared --version 2>&1 | head -1))"
+    else
+        warn "cloudflared download failed — stream will use local IP only"
+    fi
+fi
+
+# ── 5. Verify camera is accessible ────────────────────────────────────────────
 info "Checking for USB camera devices…"
 if v4l2-ctl --list-devices 2>/dev/null | grep -q "video"; then
     info "Camera device(s) found:"
