@@ -16,27 +16,15 @@ function VideoIcon() {
 
 export default function CameraFeed() {
   const [ts, setTs] = useState(formatTimestamp(new Date()))
-  const snapshotUrl = useFirebaseValue<string>('camera/snapshotUrl', '')
-  const [imgSrc, setImgSrc] = useState('')
+  const snapshot = useFirebaseValue<string>('camera/snapshot', '')
+  const piIsOnline = useFirebaseValue<boolean>('camera/piConnected', false)
 
-  const piIsOnline = Boolean(snapshotUrl)
+  const imgSrc = snapshot ? `data:image/jpeg;base64,${snapshot}` : ''
 
   useEffect(() => {
     const id = setInterval(() => setTs(formatTimestamp(new Date())), 1000)
     return () => clearInterval(id)
   }, [])
-
-  // Refresh snapshot every second with a cache-busting timestamp
-  useEffect(() => {
-    if (!snapshotUrl) {
-      setImgSrc('')
-      return
-    }
-    const tick = () => setImgSrc(`${snapshotUrl}&t=${Date.now()}`)
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [snapshotUrl])
 
   return (
     <div className="glass-card camera-card">
@@ -63,8 +51,8 @@ export default function CameraFeed() {
         )}
 
         <div className="camera-rec-badge">
-          <div className={`rec-dot${piIsOnline ? '' : ' rec-dot-offline'}`} />
-          <span className="rec-text">{piIsOnline ? 'LIVE' : 'REC'}</span>
+          <div className={`rec-dot${piIsOnline && imgSrc ? '' : ' rec-dot-offline'}`} />
+          <span className="rec-text">{piIsOnline && imgSrc ? 'LIVE' : 'REC'}</span>
         </div>
         <div className="camera-timestamp">{ts}</div>
       </div>
@@ -73,7 +61,7 @@ export default function CameraFeed() {
         <span className="camera-label">CAM · 01</span>
         <div className="camera-dot-sep" />
         <span className="camera-location">Provo, UT</span>
-        {piIsOnline && (
+        {piIsOnline && imgSrc && (
           <>
             <div className="camera-dot-sep" />
             <span style={{ fontSize: 13, color: '#22c55e', fontWeight: 500 }}>Live</span>

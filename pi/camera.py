@@ -2,16 +2,15 @@
 """
 PiVision — Raspberry Pi camera script
 --------------------------------------
-• Firebase Storage snapshots   → 1 frame/second, shown on dashboard
+• Realtime DB snapshots        → 1 frame/second (base64 JPEG), shown on dashboard
 • Motion detection (OpenCV)    → Firebase Realtime Database events
 • GPT-4 Vision analysis        → Firebase /claude/lastAnalysis
 • MJPEG stream (LAN only)      → http://<local-ip>:8080/stream
 
 Requirements:
   1. Place your Firebase service account JSON at pi/serviceAccount.json
-  2. Enable Firebase Storage at console.firebase.google.com
-  3. Set environment variable: export OPENAI_API_KEY="sk-..."
-  4. Run: python3 camera.py
+  2. Set environment variable: export OPENAI_API_KEY="sk-..."
+  3. Run: python3 camera.py
 
 Optional env vars:
   CAMERA_INDEX        USB camera device index (default: 0)
@@ -34,21 +33,13 @@ from datetime import datetime
 
 import cv2
 import firebase_admin
-from firebase_admin import credentials, db as rtdb, storage as fb_storage
+from firebase_admin import credentials, db as rtdb
 from openai import OpenAI
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 FIREBASE_DB_URL  = "https://pivision-28ddb-default-rtdb.firebaseio.com"
 FIREBASE_PROJECT = "pivision-28ddb"
-STORAGE_BUCKET   = "pivision-28ddb.appspot.com"
 SERVICE_ACCOUNT  = os.path.join(os.path.dirname(__file__), "serviceAccount.json")
-
-# Stable download URL — token is set in metadata on every upload
-SNAPSHOT_TOKEN = "pivision-snapshot-v1"
-SNAPSHOT_URL   = (
-    f"https://firebasestorage.googleapis.com/v0/b/{STORAGE_BUCKET}"
-    f"/o/camera%2Fsnapshot.jpg?alt=media&token={SNAPSHOT_TOKEN}"
-)
 
 OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
 CAMERA_INDEX      = int(os.environ.get("CAMERA_INDEX", "0"))
@@ -60,6 +51,10 @@ MOTION_COOLDOWN   = float(os.environ.get("MOTION_COOLDOWN", "2"))
 FRAME_WIDTH  = 1280
 FRAME_HEIGHT = 720
 STREAM_FPS   = 15
+
+# Snapshot dimensions — small enough to keep Realtime DB bandwidth low
+SNAPSHOT_W = 640
+SNAPSHOT_H = 360
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -151,22 +146,8 @@ def init_firebase() -> None:
         )
         sys.exit(1)
     cred = credentials.Certificate(SERVICE_ACCOUNT)
-    firebase_admin.initialize_app(cred, {
-        "databaseURL": FIREBASE_DB_URL,
-        "storageBucket": STORAGE_BUCKET,
-    })
+    firebase_admin.initialize_app(cred, {"databaseURL": FIREBASE_DB_URL})
     log.info("Firebase connected ✓  (project: %s)", FIREBASE_PROJECT)
-
-
-# ── Firebase Storage snapshot upload ──────────────────────────────────────────
-def upload_snapshot(jpeg_bytes: bytes) -> None:
-    try:
-        bucket = fb_storage.bucket()
-        blob = bucket.blob("camera/snapshot.jpg")
-        blob.metadata = {"firebaseStorageDownloadTokens": SNAPSHOT_TOKEN}
-        blob.upload_from_string(jpeg_bytes, content_type="image/jpeg")
-    except Exception as exc:
-        log.warning("Snapshot upload failed: %s", exc)
 
 
 # ── Firebase Realtime DB helpers ───────────────────────────────────────────────
@@ -197,14 +178,15 @@ def update_claude(text: str) -> None:
     })
 
 
-def set_camera_status(connected: bool, snapshot_url: str = "") -> None:
+def set_camera_status(connected: bool) -> None:
     rtdb.reference("camera").update({
         "piConnected": connected,
         "status":      "Connected" if connected else "Disconnected",
         "fps":         1 if connected else 0,
         "resolution":  "720p" if connected else "—",
-        "snapshotUrl": snapshot_url,
     })
+    if not connected:
+        rtdb.reference("camera/snapshot").set("")
 
 
 # ── GPT-4 Vision ───────────────────────────────────────────────────────────────
@@ -250,17 +232,22 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
     latest_frame     = None
     frame_lock       = threading.Lock()
 
-    # ── Snapshot upload worker (1 frame/second → Firebase Storage) ────────────
+    # ── Snapshot worker: 1 frame/second → Realtime Database as base64 ─────────
     def snapshot_worker() -> None:
-        log.info("Snapshot worker started — uploading 1 frame/second to Firebase Storage")
+        log.info("Snapshot worker started — pushing 1 frame/second to Firebase")
         while True:
             time.sleep(1)
             with frame_lock:
                 f = latest_frame.copy() if latest_frame is not None else None
             if f is None:
                 continue
-            _, buf = cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 70])
-            threading.Thread(target=upload_snapshot, args=(buf.tobytes(),), daemon=True).start()
+            small = cv2.resize(f, (SNAPSHOT_W, SNAPSHOT_H))
+            _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            b64 = base64.b64encode(buf).decode("utf-8")
+            try:
+                rtdb.reference("camera/snapshot").set(b64)
+            except Exception as exc:
+                log.warning("Snapshot write failed: %s", exc)
 
     threading.Thread(target=snapshot_worker, daemon=True).start()
 
@@ -366,8 +353,7 @@ def main() -> None:
     openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
     try:
-        set_camera_status(True, SNAPSHOT_URL)
-        log.info("Snapshot URL → %s", SNAPSHOT_URL)
+        set_camera_status(True)
         log.info("PiVision is running — press Ctrl+C to stop")
         run_camera(cap, frame_buf, openai_client)
     except KeyboardInterrupt:
@@ -375,7 +361,7 @@ def main() -> None:
     finally:
         cap.release()
         try:
-            set_camera_status(False, "")
+            set_camera_status(False)
         except Exception:
             pass
         log.info("Goodbye.")
