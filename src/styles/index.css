@@ -318,6 +318,22 @@ body {
   justify-content: center;
 }
 
+/* Live MJPEG stream image — fills the entire feed area */
+.camera-stream-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+}
+
+/* Offline REC dot — grey instead of white */
+.rec-dot-offline {
+  background: rgba(255,255,255,0.35) !important;
+  animation: none !important;
+}
+
 .camera-grid {
   position: absolute;
   inset: 0;
