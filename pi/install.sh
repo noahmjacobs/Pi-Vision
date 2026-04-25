@@ -24,26 +24,20 @@ info "Updating package lists…"
 sudo apt-get update -qq
 
 info "Installing system dependencies…"
+# Minimal set — works on both Raspberry Pi OS Bullseye (11) and Bookworm (12).
+# Packages like libatlas-base-dev, libhdf5-serial-dev, libgstreamer*-dev,
+# libopencv-dev, libjasper-dev, and libqt* were removed or renamed in Bookworm.
 sudo apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
     python3-dev \
-    libopencv-dev \
     python3-opencv \
-    libatlas-base-dev \
     libjpeg-dev \
     libpng-dev \
-    libtiff-dev \
-    libavcodec-dev \
-    libavformat-dev \
-    libswscale-dev \
     libv4l-dev \
     v4l-utils \
     libhdf5-dev \
-    libhdf5-serial-dev \
-    libgstreamer1.0-dev \
-    libgstreamer-plugins-base1.0-dev \
     gcc \
     g++ \
     make \
