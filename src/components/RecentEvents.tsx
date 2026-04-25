@@ -1,7 +1,23 @@
-import { CameraEvent } from '../types'
+import { DBEvent } from '../types'
+
+// Derive dot color from event type and label
+function eventColor(ev: DBEvent): string {
+  if (ev.type === 'motion') return '#1d6ef4'
+  const l = ev.label.toLowerCase()
+  if (l.includes('person')) return '#22c55e'
+  if (l.includes('package')) return '#f59e0b'
+  if (l.includes('vehicle')) return '#a855f7'
+  if (l.includes('animal')) return '#f97316'
+  return '#6b7280'
+}
+
+function formatTime(timestamp: number): string {
+  const d = new Date(timestamp)
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+}
 
 interface RecentEventsProps {
-  events: CameraEvent[]
+  events: DBEvent[]
   onSeeAll?: () => void
 }
 
@@ -15,12 +31,12 @@ export default function RecentEvents({ events, onSeeAll }: RecentEventsProps) {
       <div className="events-list">
         {events.map(ev => (
           <div key={ev.id} className="event-item">
-            <div className="event-dot" style={{ background: ev.color }} />
+            <div className="event-dot" style={{ background: eventColor(ev) }} />
             <div className="event-info">
-              <div className="event-name">{ev.name}</div>
-              <div className="event-sub">{ev.sub}</div>
+              <div className="event-name">{ev.label}</div>
+              <div className="event-sub">{ev.sublabel}</div>
             </div>
-            <div className="event-time">{ev.time}</div>
+            <div className="event-time">{formatTime(ev.timestamp)}</div>
           </div>
         ))}
       </div>

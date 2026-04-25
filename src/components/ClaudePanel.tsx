@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { ClaudeAnalysis } from '../types'
+import { useState, useEffect } from 'react'
+import { DBClaude } from '../types'
 
 interface ClaudePanelProps {
-  analysis: ClaudeAnalysis
+  claude: DBClaude
 }
 
 const RESPONSES = [
@@ -13,10 +13,15 @@ const RESPONSES = [
   'Person re-identified from earlier session. Movement pattern is consistent with a resident.',
 ]
 
-export default function ClaudePanel({ analysis }: ClaudePanelProps) {
+export default function ClaudePanel({ claude }: ClaudePanelProps) {
   const [query, setQuery] = useState('')
-  const [response, setResponse] = useState(analysis.text)
+  const [response, setResponse] = useState(claude.lastAnalysis)
   const [loading, setLoading] = useState(false)
+
+  // Sync if Firebase updates the analysis
+  useEffect(() => {
+    if (claude.lastAnalysis) setResponse(claude.lastAnalysis)
+  }, [claude.lastAnalysis])
 
   function handleSend() {
     if (!query.trim()) return

@@ -1,29 +1,28 @@
-export interface CameraEvent {
-  id: string
-  name: string
-  sub: string
-  color: string
-  time: string
-  timestamp: number
-}
+// Firebase Realtime Database schema types
 
-export interface Stats {
+export interface DBStats {
   motionEvents: number
-  objectsFound: number
-  uptimeSeconds: number
-  lastEventLabel: string
-  lastEventMinutesAgo: number
+  objectsDetected: number
+  uptime: string
+  lastEvent: string
 }
 
-export interface SystemStatus {
-  piStatus: 'Connected' | 'Disconnected' | 'Reconnecting'
-  frameRate: number
+export interface DBEvent {
+  id: string
+  timestamp: number
+  type: 'motion' | 'object'
+  label: string
+  sublabel: string
+}
+
+export interface DBCamera {
+  status: string
+  fps: number
   resolution: string
-  storage: string
-  model: string
+  piConnected: boolean
 }
 
-export interface ClaudeAnalysis {
-  text: string
-  updatedAt: number
+export interface DBClaude {
+  lastAnalysis: string
+  lastUpdated: number
 }
