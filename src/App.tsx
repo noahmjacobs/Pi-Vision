@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Header from './components/Header'
+import BottomNav from './components/BottomNav'
 import Dashboard from './pages/Dashboard'
 import Analytics from './pages/Analytics'
 import Alerts from './pages/Alerts'
@@ -19,6 +20,7 @@ export default function App() {
         {page === 'Alerts' && <Alerts />}
         {page === 'Settings' && <Settings />}
       </main>
+      <BottomNav currentPage={page} onNavigate={setPage} />
     </div>
   )
 }

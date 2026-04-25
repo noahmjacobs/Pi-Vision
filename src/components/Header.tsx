@@ -35,7 +35,8 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
         </div>
       </div>
 
-      <nav className="header-nav">
+      {/* Hidden on mobile — replaced by BottomNav */}
+      <nav className="header-nav" aria-label="Desktop navigation">
         {NAV_ITEMS.map(item => (
           <button
             key={item}
@@ -47,6 +48,7 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
         ))}
       </nav>
 
+      {/* Hidden on mobile */}
       <div className="header-time">{time}</div>
     </header>
   )
