@@ -5,16 +5,6 @@ function formatTimestamp(d: Date) {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`
 }
 
-function ExternalLinkIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-      <polyline points="15 3 21 3 21 9" />
-      <line x1="10" y1="14" x2="21" y2="3" />
-    </svg>
-  )
-}
-
 function VideoIcon() {
   return (
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -26,70 +16,52 @@ function VideoIcon() {
 
 export default function CameraFeed() {
   const [ts, setTs] = useState(formatTimestamp(new Date()))
-  const streamUrl = useFirebaseValue<string>('camera/streamUrl', '')
+  const snapshotUrl = useFirebaseValue<string>('camera/snapshotUrl', '')
+  const [imgSrc, setImgSrc] = useState('')
 
-  // Try embedding only when served over HTTP (avoids mixed-content blocking on HTTPS)
-  const pageIsHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
-  const streamIsHttps = streamUrl.startsWith('https://')
-
-  // We can safely embed when both sides match protocol, or stream is HTTPS on any page
-  const canEmbed = Boolean(streamUrl) && (streamIsHttps || !pageIsHttps)
-
-  const [embedError, setEmbedError] = useState(false)
-
-  useEffect(() => { setEmbedError(false) }, [streamUrl])
+  const piIsOnline = Boolean(snapshotUrl)
 
   useEffect(() => {
     const id = setInterval(() => setTs(formatTimestamp(new Date())), 1000)
     return () => clearInterval(id)
   }, [])
 
-  const showEmbed   = canEmbed && !embedError
-  const piIsOnline  = Boolean(streamUrl)
+  // Refresh snapshot every second with a cache-busting timestamp
+  useEffect(() => {
+    if (!snapshotUrl) {
+      setImgSrc('')
+      return
+    }
+    const tick = () => setImgSrc(`${snapshotUrl}&t=${Date.now()}`)
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [snapshotUrl])
 
   return (
     <div className="glass-card camera-card">
       <div className="camera-feed-wrap">
 
-        {showEmbed ? (
-          /* ── Embedded MJPEG stream (same-network HTTP or HTTPS stream) ── */
+        {imgSrc ? (
           <img
-            key={streamUrl}
-            src={streamUrl}
-            alt="Live camera feed"
+            src={imgSrc}
+            alt="Live camera snapshot"
             className="camera-stream-img"
-            onError={() => setEmbedError(true)}
           />
         ) : (
-          /* ── Placeholder + optional "Open Stream" button ── */
           <>
             <div className="camera-grid">
               {Array.from({ length: 9 }).map((_, i) => (
                 <div key={i} className="camera-grid-cell" />
               ))}
             </div>
-
             <div className="camera-offline-content">
               <VideoIcon />
-              {piIsOnline ? (
-                /* Pi is running but can't embed (HTTPS page + HTTP stream) */
-                <a
-                  href={streamUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="stream-open-btn"
-                >
-                  <ExternalLinkIcon />
-                  Open Live Stream
-                </a>
-              ) : (
-                <span className="camera-placeholder-text">Camera Feed</span>
-              )}
+              <span className="camera-placeholder-text">Camera Feed</span>
             </div>
           </>
         )}
 
-        {/* ── Overlays — always on top ── */}
         <div className="camera-rec-badge">
           <div className={`rec-dot${piIsOnline ? '' : ' rec-dot-offline'}`} />
           <span className="rec-text">{piIsOnline ? 'LIVE' : 'REC'}</span>
@@ -104,21 +76,8 @@ export default function CameraFeed() {
         {piIsOnline && (
           <>
             <div className="camera-dot-sep" />
-            <span style={{ fontSize: 13, color: '#22c55e', fontWeight: 500 }}>
-              {showEmbed ? 'Live' : 'Pi Connected'}
-            </span>
+            <span style={{ fontSize: 13, color: '#22c55e', fontWeight: 500 }}>Live</span>
           </>
-        )}
-        {piIsOnline && !showEmbed && (
-          <a
-            href={streamUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="stream-footer-link"
-          >
-            <ExternalLinkIcon />
-            View feed
-          </a>
         )}
       </div>
     </div>
