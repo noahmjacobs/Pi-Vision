@@ -1,35 +1,72 @@
 import { useState, useEffect } from 'react'
 import { ref, set } from 'firebase/database'
 import { db } from '../firebase'
-import { useFirebaseValue } from '../hooks/useFirebaseData'
 
-function writeConfig(key: string, value: unknown) {
-  set(ref(db, `config/${key}`), value).catch(err =>
-    console.error(`Failed to write config/${key}:`, err)
-  )
+const LS_KEY = 'pv_config'
+
+function loadLocal() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') } catch { return {} }
+}
+
+function saveLocal(cfg: object) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(cfg)) } catch {}
 }
 
 export default function Settings() {
-  const { data: fbLinePosition }   = useFirebaseValue<number>('config/linePosition', 50, { cache: false })
-  const { data: fbCountDirection } = useFirebaseValue<string>('config/countDirection', 'down', { cache: false })
-  const { data: fbConfidence }     = useFirebaseValue<number>('config/confidence', 45, { cache: false })
-  const { data: fbCameraIndex }    = useFirebaseValue<number>('config/cameraIndex', 0, { cache: false })
+  const saved = loadLocal()
 
-  const [linePosition, setLinePosition]     = useState(50)
-  const [countDirection, setCountDirection] = useState('down')
-  const [confidence, setConfidence]         = useState(45)
-  const [cameraIndex, setCameraIndex]       = useState(0)
+  const [linePosition,   setLinePosition]   = useState<number>(saved.linePosition   ?? 50)
+  const [countDirection, setCountDirection] = useState<string>(saved.countDirection ?? 'down')
+  const [confidence,     setConfidence]     = useState<number>(saved.confidence     ?? 45)
+  const [cameraIndex,    setCameraIndex]    = useState<number>(saved.cameraIndex    ?? 0)
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
-  useEffect(() => { setLinePosition(fbLinePosition) }, [fbLinePosition])
-  useEffect(() => { setCountDirection(fbCountDirection) }, [fbCountDirection])
-  useEffect(() => { setConfidence(fbConfidence) }, [fbConfidence])
-  useEffect(() => { setCameraIndex(fbCameraIndex) }, [fbCameraIndex])
+  async function handleSave() {
+    setStatus('saving')
+    const cfg = { linePosition, countDirection, confidence, cameraIndex }
+    saveLocal(cfg)
+    try {
+      await Promise.all([
+        set(ref(db, 'config/linePosition'),   linePosition),
+        set(ref(db, 'config/countDirection'), countDirection),
+        set(ref(db, 'config/confidence'),     confidence),
+        set(ref(db, 'config/cameraIndex'),    cameraIndex),
+      ])
+      setStatus('saved')
+    } catch (err) {
+      console.error('Firebase config write failed:', err)
+      setStatus('error')
+    }
+    setTimeout(() => setStatus('idle'), 2500)
+  }
 
   return (
     <div className="settings-page">
-      <div>
-        <div className="page-title">Settings</div>
-        <div className="page-subtitle">Configure your PiVision camera system</div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <div className="page-title">Settings</div>
+          <div className="page-subtitle">Configure your PiVision camera system</div>
+        </div>
+        <button
+          onClick={handleSave}
+          disabled={status === 'saving'}
+          style={{
+            padding: '9px 22px',
+            borderRadius: 10,
+            border: 'none',
+            background: status === 'saved' ? '#22c55e' : status === 'error' ? '#ef4444' : 'var(--accent-blue)',
+            color: '#fff',
+            fontSize: 14,
+            fontWeight: 600,
+            fontFamily: 'var(--font)',
+            cursor: status === 'saving' ? 'not-allowed' : 'pointer',
+            opacity: status === 'saving' ? 0.7 : 1,
+            transition: 'background 0.2s',
+            minWidth: 90,
+          }}
+        >
+          {status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved ✓' : status === 'error' ? 'Failed ✗' : 'Save'}
+        </button>
       </div>
 
       {/* Counting */}
@@ -46,15 +83,8 @@ export default function Settings() {
               {linePosition}%
             </span>
             <input
-              type="range"
-              min={0}
-              max={100}
-              value={linePosition}
-              onChange={e => {
-                const v = Number(e.target.value)
-                setLinePosition(v)
-                writeConfig('linePosition', v)
-              }}
+              type="range" min={0} max={100} value={linePosition}
+              onChange={e => setLinePosition(Number(e.target.value))}
               style={{ width: 120 }}
             />
           </div>
@@ -68,10 +98,7 @@ export default function Settings() {
           <select
             className="settings-select"
             value={countDirection}
-            onChange={e => {
-              setCountDirection(e.target.value)
-              writeConfig('countDirection', e.target.value)
-            }}
+            onChange={e => setCountDirection(e.target.value)}
           >
             <option value="down">Down only (entering)</option>
             <option value="up">Up only (exiting)</option>
@@ -89,15 +116,8 @@ export default function Settings() {
               {confidence}%
             </span>
             <input
-              type="range"
-              min={0}
-              max={100}
-              value={confidence}
-              onChange={e => {
-                const v = Number(e.target.value)
-                setConfidence(v)
-                writeConfig('confidence', v)
-              }}
+              type="range" min={0} max={100} value={confidence}
+              onChange={e => setConfidence(Number(e.target.value))}
               style={{ width: 120 }}
             />
           </div>
@@ -114,15 +134,8 @@ export default function Settings() {
             <div className="settings-row-sub">USB camera device index (0–5)</div>
           </div>
           <input
-            type="number"
-            min={0}
-            max={5}
-            value={cameraIndex}
-            onChange={e => {
-              const v = Number(e.target.value)
-              setCameraIndex(v)
-              writeConfig('cameraIndex', v)
-            }}
+            type="number" min={0} max={5} value={cameraIndex}
+            onChange={e => setCameraIndex(Number(e.target.value))}
             style={{
               width: 64,
               background: 'rgba(0,0,0,0.04)',
@@ -159,7 +172,7 @@ export default function Settings() {
           <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Note:</span>{' '}
           Settings are applied when{' '}
           <code style={{ fontFamily: 'monospace', fontSize: 12, background: 'rgba(0,0,0,0.06)', padding: '1px 5px', borderRadius: 4 }}>camera.py</code>{' '}
-          starts. Restart the camera script after making changes.
+          starts. Restart the camera script after saving changes.
         </div>
       </div>
     </div>
