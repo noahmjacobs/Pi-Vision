@@ -67,6 +67,7 @@ pip install \
     opencv-python-headless \
     firebase-admin \
     openai \
+    ultralytics \
     --quiet
 
 info "Python packages installed ✓"

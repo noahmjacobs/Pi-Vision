@@ -73,13 +73,13 @@ export default function Dashboard() {
           tooltip="Total motion detections recorded today"
         />
         <StatCard
-          label="Objects Found"
-          value={localStats.objectsDetected.toLocaleString()}
-          sub="total"
+          label="People Counted"
+          value={(localStats.peopleCount ?? 0).toLocaleString()}
+          sub="this session"
           icon={<Target color="#22c55e" />}
           iconBg="rgba(34,197,94,0.12)"
           loading={statsLoading}
-          tooltip="Cumulative objects identified by AI vision"
+          tooltip="People who crossed the counting line this session"
         />
         <StatCard
           label="Uptime"

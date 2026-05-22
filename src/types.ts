@@ -2,7 +2,7 @@
 
 export interface DBStats {
   motionEvents: number
-  objectsDetected: number
+  peopleCount: number
   uptime: string
   lastEvent: string
 }
@@ -10,7 +10,7 @@ export interface DBStats {
 export interface DBEvent {
   id: string
   timestamp: number
-  type: 'motion' | 'object'
+  type: 'motion' | 'object' | 'person'
   label: string
   sublabel: string
 }

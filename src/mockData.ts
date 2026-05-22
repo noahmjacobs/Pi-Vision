@@ -2,9 +2,9 @@ import { DBStats, DBEvent, DBCamera, DBClaude } from './types'
 
 export const MOCK_STATS: DBStats = {
   motionEvents: 247,
-  objectsDetected: 1832,
+  peopleCount: 84,
   uptime: '14h 32m',
-  lastEvent: 'Motion · Doorway · 2m ago',
+  lastEvent: 'Person · 18:42',
 }
 
 export const MOCK_CAMERA: DBCamera = {
@@ -15,11 +15,11 @@ export const MOCK_CAMERA: DBCamera = {
 }
 
 export const MOCK_EVENTS: DBEvent[] = [
-  { id: 'evt1', timestamp: Date.now() - 2 * 60000,  type: 'motion', label: 'Motion detected',   sublabel: 'Doorway · left frame' },
-  { id: 'evt2', timestamp: Date.now() - 7 * 60000,  type: 'object', label: 'Person identified', sublabel: 'Object detection' },
-  { id: 'evt3', timestamp: Date.now() - 14 * 60000, type: 'motion', label: 'Motion detected',   sublabel: 'Left side panel' },
-  { id: 'evt4', timestamp: Date.now() - 27 * 60000, type: 'object', label: 'Package detected',  sublabel: 'Object detection' },
-  { id: 'evt5', timestamp: Date.now() - 44 * 60000, type: 'motion', label: 'Motion detected',   sublabel: 'Center frame' },
+  { id: 'evt1', timestamp: Date.now() - 2 * 60000,  type: 'person', label: 'Person counted',  sublabel: 'Crossed line · 18:42' },
+  { id: 'evt2', timestamp: Date.now() - 7 * 60000,  type: 'person', label: 'Person counted',  sublabel: 'Crossed line · 18:37' },
+  { id: 'evt3', timestamp: Date.now() - 14 * 60000, type: 'person', label: 'Person counted',  sublabel: 'Crossed line · 18:30' },
+  { id: 'evt4', timestamp: Date.now() - 27 * 60000, type: 'person', label: 'Person counted',  sublabel: 'Crossed line · 18:17' },
+  { id: 'evt5', timestamp: Date.now() - 44 * 60000, type: 'person', label: 'Person counted',  sublabel: 'Crossed line · 18:00' },
 ]
 
 export const MOCK_CLAUDE: DBClaude = {

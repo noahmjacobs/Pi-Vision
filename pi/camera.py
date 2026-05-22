@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-PiVision — Raspberry Pi camera script
---------------------------------------
-• Realtime DB snapshots        → 1 frame/second (base64 JPEG), shown on dashboard
-• Motion detection (OpenCV)    → Firebase Realtime Database events
-• GPT-4 Vision analysis        → Firebase /claude/lastAnalysis
-• MJPEG stream (LAN only)      → http://<local-ip>:8080/stream
+PiVision — Raspberry Pi camera script (Phase 2 — People Counter)
+-----------------------------------------------------------------
+• YOLOv8-nano person detection  → tracks individuals crossing a line
+• People count                  → Firebase /stats/peopleCount
+• Realtime DB snapshots         → 1 frame/second (base64 JPEG)
+• GPT-4 Vision analysis         → Firebase /claude/lastAnalysis
+• MJPEG stream (LAN only)       → http://<local-ip>:8080/stream
 
 Requirements:
   1. Place your Firebase service account JSON at pi/serviceAccount.json
@@ -15,9 +16,11 @@ Requirements:
 
 Optional env vars:
   CAMERA_INDEX        USB camera device index (default: 0)
-  MOTION_THRESHOLD    Min contour area in px² to count as motion (default: 3000)
+  YOLO_MODEL          Model weights file (default: yolov8n.pt — downloads automatically)
+  YOLO_CONFIDENCE     Detection confidence threshold 0–1 (default: 0.45)
+  YOLO_SKIP           Run YOLO every Nth frame (default: 2 — helps on slower hardware)
+  COUNT_LINE_POS      Counting line position as fraction of frame height (default: 0.5)
   ANALYSIS_INTERVAL   Seconds between GPT-4 Vision calls (default: 60)
-  MOTION_COOLDOWN     Min seconds between consecutive motion events (default: 2)
 """
 
 import os
@@ -36,6 +39,7 @@ import cv2
 import firebase_admin
 from firebase_admin import credentials, db as rtdb
 from openai import OpenAI
+from ultralytics import YOLO
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 FIREBASE_DB_URL  = "https://pivision-28ddb-default-rtdb.firebaseio.com"
@@ -45,15 +49,17 @@ SERVICE_ACCOUNT  = os.path.join(os.path.dirname(__file__), "serviceAccount.json"
 OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
 CAMERA_INDEX      = int(os.environ.get("CAMERA_INDEX", "0"))
 STREAM_PORT       = int(os.environ.get("STREAM_PORT", "8080"))
-MOTION_THRESHOLD  = int(os.environ.get("MOTION_THRESHOLD", "3000"))
 ANALYSIS_INTERVAL = int(os.environ.get("ANALYSIS_INTERVAL", "60"))
-MOTION_COOLDOWN   = float(os.environ.get("MOTION_COOLDOWN", "2"))
+
+YOLO_MODEL      = os.environ.get("YOLO_MODEL", "yolov8n.pt")
+YOLO_CONFIDENCE = float(os.environ.get("YOLO_CONFIDENCE", "0.45"))
+YOLO_SKIP       = int(os.environ.get("YOLO_SKIP", "2"))
+COUNT_LINE_POS  = float(os.environ.get("COUNT_LINE_POS", "0.5"))  # fraction of frame height
 
 FRAME_WIDTH  = 1280
 FRAME_HEIGHT = 720
 STREAM_FPS   = 15
 
-# Snapshot dimensions — small enough to keep Realtime DB bandwidth low
 SNAPSHOT_W = 640
 SNAPSHOT_H = 360
 
@@ -64,6 +70,85 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("PiVision")
+
+
+# ── Centroid tracker ───────────────────────────────────────────────────────────
+class CentroidTracker:
+    """Tracks person centroids across frames and detects line crossings."""
+
+    def __init__(self, max_disappeared: int = 30, max_distance: int = 80) -> None:
+        self.next_id = 0
+        self.centroids: dict[int, tuple[int, int]] = {}
+        self.disappeared: dict[int, int] = {}
+        self.sides: dict[int, str] = {}   # 'above' or 'below' the counting line
+        self.max_disappeared = max_disappeared
+        self.max_distance = max_distance
+
+    def update(self, new_centroids: list[tuple[int, int]]) -> dict[int, tuple[int, int]]:
+        if not new_centroids:
+            for oid in list(self.disappeared):
+                self.disappeared[oid] += 1
+                if self.disappeared[oid] > self.max_disappeared:
+                    self._deregister(oid)
+            return self.centroids
+
+        if not self.centroids:
+            for c in new_centroids:
+                self._register(c)
+        else:
+            ids      = list(self.centroids)
+            existing = [self.centroids[i] for i in ids]
+            used_ex: set[int]  = set()
+            used_new: set[int] = set()
+
+            for ni, nc in enumerate(new_centroids):
+                best_j, best_d = -1, float("inf")
+                for ej, ec in enumerate(existing):
+                    if ej in used_ex:
+                        continue
+                    d = ((nc[0] - ec[0]) ** 2 + (nc[1] - ec[1]) ** 2) ** 0.5
+                    if d < best_d:
+                        best_d, best_j = d, ej
+                if best_j >= 0 and best_d < self.max_distance:
+                    oid = ids[best_j]
+                    self.centroids[oid] = nc
+                    self.disappeared[oid] = 0
+                    used_ex.add(best_j)
+                    used_new.add(ni)
+
+            for ej in range(len(existing)):
+                if ej not in used_ex:
+                    oid = ids[ej]
+                    self.disappeared[oid] += 1
+                    if self.disappeared[oid] > self.max_disappeared:
+                        self._deregister(oid)
+
+            for ni, nc in enumerate(new_centroids):
+                if ni not in used_new:
+                    self._register(nc)
+
+        return self.centroids
+
+    def check_crossings(self, line_y: int) -> int:
+        """Returns number of people who crossed the line this frame."""
+        count = 0
+        for oid, (_, cy) in self.centroids.items():
+            side = "above" if cy < line_y else "below"
+            prev = self.sides.get(oid)
+            if prev is not None and prev != side:
+                count += 1
+            self.sides[oid] = side
+        return count
+
+    def _register(self, centroid: tuple[int, int]) -> None:
+        self.centroids[self.next_id] = centroid
+        self.disappeared[self.next_id] = 0
+        self.next_id += 1
+
+    def _deregister(self, oid: int) -> None:
+        del self.centroids[oid]
+        del self.disappeared[oid]
+        self.sides.pop(oid, None)
 
 
 # ── MJPEG frame buffer (LAN stream) ───────────────────────────────────────────
@@ -151,7 +236,7 @@ def init_firebase() -> None:
     log.info("Firebase connected ✓  (project: %s)", FIREBASE_PROJECT)
 
 
-# ── Firebase Realtime DB helpers ───────────────────────────────────────────────
+# ── Firebase helpers ───────────────────────────────────────────────────────────
 def push_event(event_type: str, label: str, sublabel: str) -> None:
     event_id = uuid.uuid4().hex[:8]
     rtdb.reference(f"events/{event_id}").set({
@@ -163,9 +248,8 @@ def push_event(event_type: str, label: str, sublabel: str) -> None:
     })
 
 
-def increment_motion_count() -> None:
-    ref = rtdb.reference("stats/motionEvents")
-    ref.set((ref.get() or 0) + 1)
+def update_people_count(count: int) -> None:
+    rtdb.reference("stats/peopleCount").set(count)
 
 
 def update_stats_last_event(label: str) -> None:
@@ -220,20 +304,24 @@ def analyse_frame_with_gpt4(frame, client: OpenAI) -> str | None:
         return None
 
 
-# ── Camera + motion loop ───────────────────────────────────────────────────────
+# ── Camera + people counting loop ─────────────────────────────────────────────
 def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> None:
     log.info(
-        "Motion detection started  (threshold=%dpx²  analysis_interval=%ds)",
-        MOTION_THRESHOLD, ANALYSIS_INTERVAL,
+        "Loading YOLO model: %s  (confidence=%.2f  skip=%d  line=%.0f%%)",
+        YOLO_MODEL, YOLO_CONFIDENCE, YOLO_SKIP, COUNT_LINE_POS * 100,
     )
-    bg_sub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=50, detectShadows=False)
+    model   = YOLO(YOLO_MODEL)
+    tracker = CentroidTracker()
+    line_y  = int(FRAME_HEIGHT * COUNT_LINE_POS)
 
-    last_motion_at   = 0.0
+    people_count     = 0
     last_analysis_at = 0.0
     latest_frame     = None
     frame_lock       = threading.Lock()
 
-    # ── Snapshot worker: 1 frame/second → Realtime Database as base64 ─────────
+    log.info("People counter ready — counting line at y=%d px", line_y)
+
+    # ── Snapshot worker: 1 frame/second → Realtime Database ───────────────────
     def snapshot_worker() -> None:
         log.info("Snapshot worker started — pushing 1 frame/second to Firebase")
         while True:
@@ -242,7 +330,10 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
                 f = latest_frame.copy() if latest_frame is not None else None
             if f is None:
                 continue
-            small = cv2.resize(f, (SNAPSHOT_W, SNAPSHOT_H))
+            # Draw counting line so users can see it on the dashboard
+            annotated = f.copy()
+            cv2.line(annotated, (0, line_y), (FRAME_WIDTH, line_y), (0, 200, 255), 2)
+            small = cv2.resize(annotated, (SNAPSHOT_W, SNAPSHOT_H))
             _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 60])
             b64 = base64.b64encode(buf).decode("utf-8")
             try:
@@ -278,9 +369,10 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
 
     threading.Thread(target=vision_worker, daemon=True).start()
 
-    # ── Main capture loop ──────────────────────────────────────────────────────
+    # ── Main capture + detection loop ─────────────────────────────────────────
     _encode_params  = [cv2.IMWRITE_JPEG_QUALITY, 70]
     _frame_interval = 1.0 / STREAM_FPS
+    frame_num       = 0
 
     while True:
         ret, frame = cap.read()
@@ -299,25 +391,31 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
         with frame_lock:
             latest_frame = frame
 
-        fg_mask = bg_sub.apply(frame)
-        contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        motion_area = sum(cv2.contourArea(c) for c in contours)
+        frame_num += 1
+        if frame_num % YOLO_SKIP == 0:
+            results   = model(frame, classes=[0], conf=YOLO_CONFIDENCE, verbose=False)
+            centroids = []
+            for box in results[0].boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                centroids.append(((x1 + x2) // 2, (y1 + y2) // 2))
 
-        now = time.time()
-        if motion_area > MOTION_THRESHOLD and (now - last_motion_at) > MOTION_COOLDOWN:
-            last_motion_at = now
-            ts_label = datetime.now().strftime("%H:%M")
-            log.info("Motion  area=%.0fpx²  @ %s", motion_area, ts_label)
+            tracker.update(centroids)
+            crossings = tracker.check_crossings(line_y)
 
-            def _write_motion(ts=ts_label):
-                try:
-                    push_event("motion", "Motion detected", "USB webcam · Pi")
-                    increment_motion_count()
-                    update_stats_last_event(f"Motion · {ts}")
-                except Exception as exc:
-                    log.warning("Firebase write failed: %s", exc)
+            if crossings > 0:
+                people_count += crossings
+                ts_label = datetime.now().strftime("%H:%M")
+                log.info("Person crossed line  total=%d  @ %s", people_count, ts_label)
 
-            threading.Thread(target=_write_motion, daemon=True).start()
+                def _write_person(count=people_count, ts=ts_label):
+                    try:
+                        push_event("person", "Person counted", f"Crossed line · {ts}")
+                        update_people_count(count)
+                        update_stats_last_event(f"Person · {ts}")
+                    except Exception as exc:
+                        log.warning("Firebase write failed: %s", exc)
+
+                threading.Thread(target=_write_person, daemon=True).start()
 
         time.sleep(_frame_interval)
 
