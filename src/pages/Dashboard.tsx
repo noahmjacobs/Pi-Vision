@@ -61,30 +61,27 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard">
-      <div className="stat-cards-row">
-        <StatCard
-          label="People Today"
-          value={(stats?.peopleCount ?? 0).toLocaleString()}
-          sub="this session"
-          icon={<PeopleIcon color="#1d6ef4" />}
-          iconBg="rgba(29,110,244,0.12)"
-          loading={statsLoading}
-          tooltip="People who crossed the counting line this session"
-        />
-        <StatCard
-          label="Uptime"
-          value={uptime}
-          sub="session running"
-          icon={<Clock color="#f59e0b" />}
-          iconBg="rgba(245,158,11,0.12)"
-          loading={false}
-          tooltip="How long the camera has been running this session"
-        />
-      </div>
-
       <div className="middle-row">
         <CameraFeed />
         <div className="right-panel">
+          <StatCard
+            label="People Today"
+            value={(stats?.peopleCount ?? 0).toLocaleString()}
+            sub="this session"
+            icon={<PeopleIcon color="#1d6ef4" />}
+            iconBg="rgba(29,110,244,0.12)"
+            loading={statsLoading}
+            tooltip="People who crossed the counting line this session"
+          />
+          <StatCard
+            label="Uptime"
+            value={uptime}
+            sub="session running"
+            icon={<Clock color="#f59e0b" />}
+            iconBg="rgba(245,158,11,0.12)"
+            loading={false}
+            tooltip="How long the camera has been running this session"
+          />
           <RecentEvents events={events} loading={eventsLoading} />
         </div>
       </div>

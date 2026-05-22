@@ -212,7 +212,7 @@ body {
   gap: 20px;
 }
 
-/* Stat cards row */
+/* Stat cards row — kept for reference but no longer used in main layout */
 .stat-cards-row {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -258,10 +258,10 @@ body {
 }
 
 .stat-value {
-  font-size: 36px;
+  font-size: 30px;
   font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -1px;
+  letter-spacing: -0.8px;
   line-height: 1.1;
 }
 
@@ -296,7 +296,7 @@ body {
 /* ─── Middle row ─────────────────────────────── */
 .middle-row {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: 1fr 340px;
   gap: 16px;
   align-items: start;
 }
