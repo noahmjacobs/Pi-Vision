@@ -1,19 +1,46 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { ref, onValue, off, DataSnapshot } from 'firebase/database'
 import { db } from '../firebase'
 
-export function useFirebaseValue<T>(path: string, defaultVal: T) {
-  const [data, setData] = useState<T>(defaultVal)
-  const pathRef = useRef(path)
+function readCache<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw !== null ? (JSON.parse(raw) as T) : null
+  } catch {
+    return null
+  }
+}
+
+function writeCache<T>(key: string, val: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(val))
+  } catch {}
+}
+
+export function useFirebaseValue<T>(
+  path: string,
+  defaultVal: T,
+  { cache = true }: { cache?: boolean } = {}
+) {
+  const cacheKey = `pv_${path.replace(/\//g, '_')}`
+  const cached = cache ? readCache<T>(cacheKey) : null
+
+  const [data, setData] = useState<T>(cached ?? defaultVal)
+  const [loading, setLoading] = useState(cached === null)
 
   useEffect(() => {
-    const dbRef = ref(db, pathRef.current)
+    const dbRef = ref(db, path)
     const handler = (snap: DataSnapshot) => {
-      if (snap.exists()) setData(snap.val() as T)
+      setLoading(false)
+      if (snap.exists()) {
+        const val = snap.val() as T
+        setData(val)
+        if (cache) writeCache(cacheKey, val)
+      }
     }
     onValue(dbRef, handler)
     return () => off(dbRef, 'value', handler)
-  }, [])
+  }, [path, cacheKey, cache])
 
-  return data
+  return { data, loading }
 }

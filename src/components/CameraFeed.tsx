@@ -16,8 +16,8 @@ function VideoIcon() {
 
 export default function CameraFeed() {
   const [ts, setTs] = useState(formatTimestamp(new Date()))
-  const snapshot = useFirebaseValue<string>('camera/snapshot', '')
-  const piIsOnline = useFirebaseValue<boolean>('camera/piConnected', false)
+  const { data: snapshot } = useFirebaseValue<string>('camera/snapshot', '', { cache: false })
+  const { data: piIsOnline } = useFirebaseValue<boolean>('camera/piConnected', false)
 
   const imgSrc = snapshot ? `data:image/jpeg;base64,${snapshot}` : ''
 

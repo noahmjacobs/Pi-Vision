@@ -45,12 +45,11 @@ function Zap({ color }: { color: string }) {
 }
 
 export default function Dashboard() {
-  const stats  = useFirebaseValue<DBStats>('stats', MOCK_STATS)
-  const camera = useFirebaseValue<DBCamera>('camera', MOCK_CAMERA)
-  const eventsRaw = useFirebaseValue<Record<string, DBEvent>>('events', {} as Record<string, DBEvent>)
-  const claude = useFirebaseValue<DBClaude>('claude', MOCK_CLAUDE)
+  const { data: stats, loading: statsLoading }      = useFirebaseValue<DBStats>('stats', MOCK_STATS)
+  const { data: camera }                            = useFirebaseValue<DBCamera>('camera', MOCK_CAMERA)
+  const { data: eventsRaw, loading: eventsLoading } = useFirebaseValue<Record<string, DBEvent>>('events', {} as Record<string, DBEvent>)
+  const { data: claude, loading: claudeLoading }    = useFirebaseValue<DBClaude>('claude', MOCK_CLAUDE)
 
-  // Keep a local copy so stat-card reset doesn't fight Firebase
   const [localStats, setLocalStats] = useState<DBStats>(MOCK_STATS)
 
   useEffect(() => {
@@ -63,7 +62,6 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard">
-      {/* Stat cards — driven by /stats */}
       <div className="stat-cards-row">
         <StatCard
           label="Motion Events"
@@ -71,6 +69,8 @@ export default function Dashboard() {
           sub="today"
           icon={<ArrowUpRight color="#1d6ef4" />}
           iconBg="rgba(29,110,244,0.12)"
+          loading={statsLoading}
+          tooltip="Total motion detections recorded today"
         />
         <StatCard
           label="Objects Found"
@@ -78,6 +78,8 @@ export default function Dashboard() {
           sub="total"
           icon={<Target color="#22c55e" />}
           iconBg="rgba(34,197,94,0.12)"
+          loading={statsLoading}
+          tooltip="Cumulative objects identified by AI vision"
         />
         <StatCard
           label="Uptime"
@@ -85,6 +87,8 @@ export default function Dashboard() {
           sub="running"
           icon={<Clock color="#f59e0b" />}
           iconBg="rgba(245,158,11,0.12)"
+          loading={statsLoading}
+          tooltip="How long the Pi camera script has been running"
         />
         <StatCard
           label="Last Event"
@@ -92,23 +96,21 @@ export default function Dashboard() {
           sub=""
           icon={<Zap color="#f97316" />}
           iconBg="rgba(249,115,22,0.12)"
+          loading={statsLoading}
+          tooltip="Most recent detection event"
           showReset
           onReset={() => setLocalStats(s => ({ ...s, lastEvent: 'Just now' }))}
         />
       </div>
 
-      {/* Camera feed + right panel */}
       <div className="middle-row">
         <CameraFeed />
         <div className="right-panel">
-          {/* /claude */}
-          <ClaudePanel claude={claude} />
-          {/* /events */}
-          <RecentEvents events={events} />
+          <ClaudePanel claude={claude} loading={claudeLoading} />
+          <RecentEvents events={events} loading={eventsLoading} />
         </div>
       </div>
 
-      {/* Status bar — driven by /camera */}
       <StatusBar camera={camera} />
     </div>
   )
