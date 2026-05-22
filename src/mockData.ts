@@ -1,9 +1,7 @@
 import { DBStats, DBEvent, DBCamera, DBClaude } from './types'
 
 export const MOCK_STATS: DBStats = {
-  motionEvents: 247,
   peopleCount: 84,
-  uptime: '14h 32m',
   lastEvent: 'Person · 18:42',
 }
 
@@ -12,6 +10,7 @@ export const MOCK_CAMERA: DBCamera = {
   fps: 30,
   resolution: '1080p',
   piConnected: true,
+  sessionStart: Date.now() - 52 * 60 * 1000,
 }
 
 export const MOCK_EVENTS: DBEvent[] = [

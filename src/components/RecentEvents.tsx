@@ -26,7 +26,7 @@ export default function RecentEvents({ events, loading, onSeeAll }: RecentEvents
   return (
     <div className="glass-card events-card">
       <div className="events-header">
-        <span className="events-title">Recent Events</span>
+        <span className="events-title">Recent Crossings</span>
         {!loading && <button className="see-all-btn" onClick={onSeeAll}>See all</button>}
       </div>
       <div className="events-list">

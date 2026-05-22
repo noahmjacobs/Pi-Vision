@@ -1,9 +1,7 @@
 // Firebase Realtime Database schema types
 
 export interface DBStats {
-  motionEvents: number
   peopleCount: number
-  uptime: string
   lastEvent: string
 }
 
@@ -20,6 +18,7 @@ export interface DBCamera {
   fps: number
   resolution: string
   piConnected: boolean
+  sessionStart?: number
 }
 
 export interface DBClaude {

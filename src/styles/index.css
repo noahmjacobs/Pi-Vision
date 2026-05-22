@@ -215,7 +215,7 @@ body {
 /* Stat cards row */
 .stat-cards-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 16px;
 }
 
@@ -258,10 +258,10 @@ body {
 }
 
 .stat-value {
-  font-size: 28px;
+  font-size: 36px;
   font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.8px;
+  letter-spacing: -1px;
   line-height: 1.1;
 }
 
@@ -982,7 +982,7 @@ body {
 /* ─── Tablet (≤ 1100px) ──────────────────────── */
 @media (max-width: 1100px) {
   .stat-cards-row {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, 1fr); /* already 2 — stays the same */
   }
   .middle-row {
     grid-template-columns: 1fr;

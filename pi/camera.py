@@ -264,12 +264,15 @@ def update_claude(text: str) -> None:
 
 
 def set_camera_status(connected: bool) -> None:
-    rtdb.reference("camera").update({
+    update: dict = {
         "piConnected": connected,
         "status":      "Connected" if connected else "Disconnected",
         "fps":         1 if connected else 0,
         "resolution":  "720p" if connected else "—",
-    })
+    }
+    if connected:
+        update["sessionStart"] = int(time.time() * 1000)
+    rtdb.reference("camera").update(update)
     if not connected:
         rtdb.reference("camera/snapshot").set("")
 
