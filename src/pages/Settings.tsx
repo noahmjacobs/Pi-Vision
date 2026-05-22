@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { ref, set } from 'firebase/database'
 import { db } from '../firebase'
 import { useFirebaseValue } from '../hooks/useFirebaseData'
@@ -9,10 +10,20 @@ function writeConfig(key: string, value: unknown) {
 }
 
 export default function Settings() {
-  const { data: linePosition }   = useFirebaseValue<number>('config/linePosition', 50, { cache: false })
-  const { data: countDirection } = useFirebaseValue<string>('config/countDirection', 'down', { cache: false })
-  const { data: confidence }     = useFirebaseValue<number>('config/confidence', 45, { cache: false })
-  const { data: cameraIndex }    = useFirebaseValue<number>('config/cameraIndex', 0, { cache: false })
+  const { data: fbLinePosition }   = useFirebaseValue<number>('config/linePosition', 50, { cache: false })
+  const { data: fbCountDirection } = useFirebaseValue<string>('config/countDirection', 'down', { cache: false })
+  const { data: fbConfidence }     = useFirebaseValue<number>('config/confidence', 45, { cache: false })
+  const { data: fbCameraIndex }    = useFirebaseValue<number>('config/cameraIndex', 0, { cache: false })
+
+  const [linePosition, setLinePosition]     = useState(50)
+  const [countDirection, setCountDirection] = useState('down')
+  const [confidence, setConfidence]         = useState(45)
+  const [cameraIndex, setCameraIndex]       = useState(0)
+
+  useEffect(() => { setLinePosition(fbLinePosition) }, [fbLinePosition])
+  useEffect(() => { setCountDirection(fbCountDirection) }, [fbCountDirection])
+  useEffect(() => { setConfidence(fbConfidence) }, [fbConfidence])
+  useEffect(() => { setCameraIndex(fbCameraIndex) }, [fbCameraIndex])
 
   return (
     <div className="settings-page">
@@ -25,7 +36,6 @@ export default function Settings() {
       <div className="glass-card settings-section">
         <div className="settings-section-title">Counting</div>
 
-        {/* Line Position */}
         <div className="settings-row">
           <div>
             <div className="settings-row-label">Line Position</div>
@@ -40,13 +50,16 @@ export default function Settings() {
               min={0}
               max={100}
               value={linePosition}
-              onChange={e => writeConfig('linePosition', Number(e.target.value))}
+              onChange={e => {
+                const v = Number(e.target.value)
+                setLinePosition(v)
+                writeConfig('linePosition', v)
+              }}
               style={{ width: 120 }}
             />
           </div>
         </div>
 
-        {/* Count Direction */}
         <div className="settings-row">
           <div>
             <div className="settings-row-label">Count Direction</div>
@@ -55,7 +68,10 @@ export default function Settings() {
           <select
             className="settings-select"
             value={countDirection}
-            onChange={e => writeConfig('countDirection', e.target.value)}
+            onChange={e => {
+              setCountDirection(e.target.value)
+              writeConfig('countDirection', e.target.value)
+            }}
           >
             <option value="down">Down only (entering)</option>
             <option value="up">Up only (exiting)</option>
@@ -63,7 +79,6 @@ export default function Settings() {
           </select>
         </div>
 
-        {/* Detection Confidence */}
         <div className="settings-row">
           <div>
             <div className="settings-row-label">Detection Confidence</div>
@@ -78,7 +93,11 @@ export default function Settings() {
               min={0}
               max={100}
               value={confidence}
-              onChange={e => writeConfig('confidence', Number(e.target.value))}
+              onChange={e => {
+                const v = Number(e.target.value)
+                setConfidence(v)
+                writeConfig('confidence', v)
+              }}
               style={{ width: 120 }}
             />
           </div>
@@ -89,7 +108,6 @@ export default function Settings() {
       <div className="glass-card settings-section">
         <div className="settings-section-title">Camera</div>
 
-        {/* Camera Index */}
         <div className="settings-row">
           <div>
             <div className="settings-row-label">Camera Index</div>
@@ -100,11 +118,15 @@ export default function Settings() {
             min={0}
             max={5}
             value={cameraIndex}
-            onChange={e => writeConfig('cameraIndex', Number(e.target.value))}
+            onChange={e => {
+              const v = Number(e.target.value)
+              setCameraIndex(v)
+              writeConfig('cameraIndex', v)
+            }}
             style={{
               width: 64,
-              background: 'rgba(255,255,255,0.08)',
-              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'rgba(0,0,0,0.04)',
+              border: '1px solid rgba(0,0,0,0.1)',
               borderRadius: 8,
               color: 'var(--text-primary)',
               fontSize: 14,
@@ -114,7 +136,6 @@ export default function Settings() {
           />
         </div>
 
-        {/* Firebase Sync */}
         <div className="settings-row">
           <div>
             <div className="settings-row-label">Firebase Sync</div>
@@ -123,7 +144,6 @@ export default function Settings() {
           <div style={{ fontSize: 13, fontWeight: 500, color: '#22c55e' }}>Active</div>
         </div>
 
-        {/* AI Model */}
         <div className="settings-row">
           <div>
             <div className="settings-row-label">AI Model</div>
@@ -137,8 +157,9 @@ export default function Settings() {
       <div className="glass-card settings-section" style={{ borderLeft: '3px solid rgba(29,110,244,0.6)' }}>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Note:</span>{' '}
-          Settings are applied when <code style={{ fontFamily: 'monospace', fontSize: 12, background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 4 }}>camera.py</code> starts.
-          Restart the camera script after making changes.
+          Settings are applied when{' '}
+          <code style={{ fontFamily: 'monospace', fontSize: 12, background: 'rgba(0,0,0,0.06)', padding: '1px 5px', borderRadius: 4 }}>camera.py</code>{' '}
+          starts. Restart the camera script after making changes.
         </div>
       </div>
     </div>
