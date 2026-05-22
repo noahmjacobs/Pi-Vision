@@ -15,7 +15,7 @@ interface StatCardProps {
 
 export default function StatCard({ label, value, sub, icon, iconBg, showReset, onReset, loading, tooltip }: StatCardProps) {
   return (
-    <div className="glass-card stat-card" data-tooltip={tooltip}>
+    <div className="glass-card stat-card tooltip-below" data-tooltip={tooltip}>
       <div className="stat-icon-wrap" style={{ background: loading ? 'rgba(0,0,0,0.06)' : iconBg }}>
         {loading ? <Skeleton width="22px" height="22px" radius="50%" /> : icon}
       </div>

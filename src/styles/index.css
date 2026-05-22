@@ -1253,6 +1253,18 @@ body {
 /* Tooltip elements that aren't buttons get help cursor */
 [data-tooltip]:not(button) { cursor: help; }
 
+/* Tooltip below variant — for elements near the top of the page */
+.tooltip-below[data-tooltip]::after {
+  bottom: auto;
+  top: calc(100% + 10px);
+}
+.tooltip-below[data-tooltip]::before {
+  bottom: auto;
+  top: calc(100% + 4px);
+  border-top-color: transparent;
+  border-bottom-color: rgba(10, 12, 25, 0.92);
+}
+
 /* ─── Polish: hover, cursors, transitions ────────── */
 
 /* Consistent pointer cursor everywhere interactive */
