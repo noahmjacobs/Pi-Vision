@@ -129,14 +129,24 @@ class CentroidTracker:
 
         return self.centroids
 
-    def check_crossings(self, line_y: int) -> int:
-        """Returns number of people who crossed the line this frame."""
+    def check_crossings(self, line_y: int, direction: str = "down") -> int:
+        """Returns number of people who crossed the line this frame.
+
+        direction='down'  → only count above→below crossings (entering)
+        direction='up'    → only count below→above crossings (exiting)
+        direction='both'  → count crossings in either direction
+        """
         count = 0
         for oid, (_, cy) in self.centroids.items():
             side = "above" if cy < line_y else "below"
             prev = self.sides.get(oid)
             if prev is not None and prev != side:
-                count += 1
+                if direction == "both":
+                    count += 1
+                elif direction == "down" and prev == "above" and side == "below":
+                    count += 1
+                elif direction == "up" and prev == "below" and side == "above":
+                    count += 1
             self.sides[oid] = side
         return count
 
@@ -254,6 +264,29 @@ def update_people_count(count: int) -> None:
 
 def update_stats_last_event(label: str) -> None:
     rtdb.reference("stats/lastEvent").set(label)
+
+
+def increment_daily_count(crossings: int) -> None:
+    """Reads counts/{YYYY-MM-DD}/total and increments it by crossings."""
+    date_key = datetime.now().strftime("%Y-%m-%d")
+    path = f"counts/{date_key}/total"
+    try:
+        current = rtdb.reference(path).get() or 0
+        rtdb.reference(path).set(current + crossings)
+    except Exception as exc:
+        log.warning("Daily count update failed: %s", exc)
+
+
+def load_firebase_config() -> dict:
+    """Reads config node from Firebase and returns it as a dict."""
+    try:
+        result = rtdb.reference("config").get()
+        if isinstance(result, dict):
+            return result
+        return {}
+    except Exception as exc:
+        log.warning("Failed to load Firebase config: %s", exc)
+        return {}
 
 
 def update_claude(text: str) -> None:
@@ -403,18 +436,19 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
                 centroids.append(((x1 + x2) // 2, (y1 + y2) // 2))
 
             tracker.update(centroids)
-            crossings = tracker.check_crossings(line_y)
+            crossings = tracker.check_crossings(line_y, direction="down")
 
             if crossings > 0:
                 people_count += crossings
                 ts_label = datetime.now().strftime("%H:%M")
                 log.info("Person crossed line  total=%d  @ %s", people_count, ts_label)
 
-                def _write_person(count=people_count, ts=ts_label):
+                def _write_person(count=people_count, ts=ts_label, cx=crossings):
                     try:
                         push_event("person", "Person counted", f"Crossed line · {ts}")
                         update_people_count(count)
                         update_stats_last_event(f"Person · {ts}")
+                        increment_daily_count(cx)
                     except Exception as exc:
                         log.warning("Firebase write failed: %s", exc)
 
@@ -432,6 +466,16 @@ def main() -> None:
         )
 
     init_firebase()
+
+    # Load config from Firebase and override defaults if present
+    fb_config = load_firebase_config()
+    global COUNT_LINE_POS, YOLO_CONFIDENCE
+    if "linePosition" in fb_config:
+        COUNT_LINE_POS = float(fb_config["linePosition"]) / 100.0
+        log.info("Firebase config: COUNT_LINE_POS overridden to %.2f", COUNT_LINE_POS)
+    if "confidence" in fb_config:
+        YOLO_CONFIDENCE = float(fb_config["confidence"]) / 100.0
+        log.info("Firebase config: YOLO_CONFIDENCE overridden to %.2f", YOLO_CONFIDENCE)
 
     frame_buf = FrameBuffer()
     start_mjpeg_server(frame_buf, STREAM_PORT)

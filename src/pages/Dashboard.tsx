@@ -37,9 +37,12 @@ function formatUptime(ms: number): string {
 }
 
 export default function Dashboard() {
+  const today = new Date().toISOString().split('T')[0]
+
   const { data: stats, loading: statsLoading } = useFirebaseValue<DBStats>('stats', MOCK_STATS)
   const { data: camera }                       = useFirebaseValue<DBCamera>('camera', MOCK_CAMERA)
   const { data: eventsRaw, loading: eventsLoading } = useFirebaseValue<Record<string, DBEvent>>('events', {} as Record<string, DBEvent>)
+  const { data: todayTotal } = useFirebaseValue<number>(`counts/${today}/total`, 0, { cache: false })
 
   const [uptime, setUptime] = useState('—')
 
@@ -66,11 +69,10 @@ export default function Dashboard() {
         <div className="right-panel">
           <StatCard
             label="People Today"
-            value={(stats?.peopleCount ?? 0).toLocaleString()}
-            sub="this session"
+            value={todayTotal.toLocaleString()}
+            sub={`${(stats?.peopleCount ?? 0)} this session`}
             icon={<PeopleIcon color="#1d6ef4" />}
             iconBg="rgba(29,110,244,0.12)"
-            loading={statsLoading}
           />
           <StatCard
             label="Uptime"

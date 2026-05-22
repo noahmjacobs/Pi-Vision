@@ -3,10 +3,9 @@ import Header from './components/Header'
 import BottomNav from './components/BottomNav'
 import Dashboard from './pages/Dashboard'
 import Analytics from './pages/Analytics'
-import Alerts from './pages/Alerts'
 import Settings from './pages/Settings'
 
-export type Page = 'Dashboard' | 'Analytics' | 'Alerts' | 'Settings'
+export type Page = 'Dashboard' | 'Analytics' | 'Settings'
 
 export default function App() {
   const [page, setPage] = useState<Page>('Dashboard')
@@ -17,7 +16,6 @@ export default function App() {
       <main className="main-content">
         {page === 'Dashboard' && <Dashboard />}
         {page === 'Analytics' && <Analytics />}
-        {page === 'Alerts' && <Alerts />}
         {page === 'Settings' && <Settings />}
       </main>
       <BottomNav currentPage={page} onNavigate={setPage} />

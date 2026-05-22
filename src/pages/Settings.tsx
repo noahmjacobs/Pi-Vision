@@ -1,14 +1,18 @@
-import { useState } from 'react'
+import { ref, set } from 'firebase/database'
+import { db } from '../firebase'
+import { useFirebaseValue } from '../hooks/useFirebaseData'
+
+function writeConfig(key: string, value: unknown) {
+  set(ref(db, `config/${key}`), value).catch(err =>
+    console.error(`Failed to write config/${key}:`, err)
+  )
+}
 
 export default function Settings() {
-  const [motionAlerts, setMotionAlerts] = useState(true)
-  const [personAlerts, setPersonAlerts] = useState(true)
-  const [packageAlerts, setPackageAlerts] = useState(true)
-  const [nightMode, setNightMode] = useState(false)
-  const [autoRecord, setAutoRecord] = useState(true)
-  const [resolution, setResolution] = useState('1080p')
-  const [fps, setFps] = useState('30')
-  const [retention, setRetention] = useState('7')
+  const { data: linePosition }   = useFirebaseValue<number>('config/linePosition', 50, { cache: false })
+  const { data: countDirection } = useFirebaseValue<string>('config/countDirection', 'down', { cache: false })
+  const { data: confidence }     = useFirebaseValue<number>('config/confidence', 45, { cache: false })
+  const { data: cameraIndex }    = useFirebaseValue<number>('config/cameraIndex', 0, { cache: false })
 
   return (
     <div className="settings-page">
@@ -17,32 +21,67 @@ export default function Settings() {
         <div className="page-subtitle">Configure your PiVision camera system</div>
       </div>
 
-      {/* Alerts */}
+      {/* Counting */}
       <div className="glass-card settings-section">
-        <div className="settings-section-title">Notifications</div>
+        <div className="settings-section-title">Counting</div>
 
+        {/* Line Position */}
         <div className="settings-row">
           <div>
-            <div className="settings-row-label">Motion Alerts</div>
-            <div className="settings-row-sub">Get notified on any motion detection</div>
+            <div className="settings-row-label">Line Position</div>
+            <div className="settings-row-sub">Counting line as % of frame height from top</div>
           </div>
-          <button className={`toggle${motionAlerts ? ' on' : ''}`} onClick={() => setMotionAlerts(v => !v)} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 36, textAlign: 'right' }}>
+              {linePosition}%
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={linePosition}
+              onChange={e => writeConfig('linePosition', Number(e.target.value))}
+              style={{ width: 120 }}
+            />
+          </div>
         </div>
 
+        {/* Count Direction */}
         <div className="settings-row">
           <div>
-            <div className="settings-row-label">Person Identified</div>
-            <div className="settings-row-sub">Alert when a person is detected by AI</div>
+            <div className="settings-row-label">Count Direction</div>
+            <div className="settings-row-sub">Which direction to count as a crossing</div>
           </div>
-          <button className={`toggle${personAlerts ? ' on' : ''}`} onClick={() => setPersonAlerts(v => !v)} />
+          <select
+            className="settings-select"
+            value={countDirection}
+            onChange={e => writeConfig('countDirection', e.target.value)}
+          >
+            <option value="down">Down only (entering)</option>
+            <option value="up">Up only (exiting)</option>
+            <option value="both">Both directions</option>
+          </select>
         </div>
 
+        {/* Detection Confidence */}
         <div className="settings-row">
           <div>
-            <div className="settings-row-label">Package Detection</div>
-            <div className="settings-row-sub">Alert on package delivery or removal</div>
+            <div className="settings-row-label">Detection Confidence</div>
+            <div className="settings-row-sub">Minimum YOLO confidence threshold (0–100%)</div>
           </div>
-          <button className={`toggle${packageAlerts ? ' on' : ''}`} onClick={() => setPackageAlerts(v => !v)} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 36, textAlign: 'right' }}>
+              {confidence}%
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={confidence}
+              onChange={e => writeConfig('confidence', Number(e.target.value))}
+              style={{ width: 120 }}
+            />
+          </div>
         </div>
       </div>
 
@@ -50,66 +89,32 @@ export default function Settings() {
       <div className="glass-card settings-section">
         <div className="settings-section-title">Camera</div>
 
+        {/* Camera Index */}
         <div className="settings-row">
           <div>
-            <div className="settings-row-label">Resolution</div>
-            <div className="settings-row-sub">Video capture resolution</div>
+            <div className="settings-row-label">Camera Index</div>
+            <div className="settings-row-sub">USB camera device index (0–5)</div>
           </div>
-          <select className="settings-select" value={resolution} onChange={e => setResolution(e.target.value)}>
-            <option>480p</option>
-            <option>720p</option>
-            <option>1080p</option>
-            <option>4K</option>
-          </select>
+          <input
+            type="number"
+            min={0}
+            max={5}
+            value={cameraIndex}
+            onChange={e => writeConfig('cameraIndex', Number(e.target.value))}
+            style={{
+              width: 64,
+              background: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 8,
+              color: 'var(--text-primary)',
+              fontSize: 14,
+              padding: '6px 10px',
+              textAlign: 'center',
+            }}
+          />
         </div>
 
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Frame Rate</div>
-            <div className="settings-row-sub">Capture frames per second</div>
-          </div>
-          <select className="settings-select" value={fps} onChange={e => setFps(e.target.value)}>
-            <option>15</option>
-            <option>24</option>
-            <option>30</option>
-            <option>60</option>
-          </select>
-        </div>
-
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Night Mode</div>
-            <div className="settings-row-sub">Enable infrared / low-light processing</div>
-          </div>
-          <button className={`toggle${nightMode ? ' on' : ''}`} onClick={() => setNightMode(v => !v)} />
-        </div>
-
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Auto Record on Motion</div>
-            <div className="settings-row-sub">Automatically save clips when motion is detected</div>
-          </div>
-          <button className={`toggle${autoRecord ? ' on' : ''}`} onClick={() => setAutoRecord(v => !v)} />
-        </div>
-      </div>
-
-      {/* Storage */}
-      <div className="glass-card settings-section">
-        <div className="settings-section-title">Storage</div>
-
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Retention Period</div>
-            <div className="settings-row-sub">How long to keep recorded footage</div>
-          </div>
-          <select className="settings-select" value={retention} onChange={e => setRetention(e.target.value)}>
-            <option value="1">1 day</option>
-            <option value="3">3 days</option>
-            <option value="7">7 days</option>
-            <option value="30">30 days</option>
-          </select>
-        </div>
-
+        {/* Firebase Sync */}
         <div className="settings-row">
           <div>
             <div className="settings-row-label">Firebase Sync</div>
@@ -117,34 +122,23 @@ export default function Settings() {
           </div>
           <div style={{ fontSize: 13, fontWeight: 500, color: '#22c55e' }}>Active</div>
         </div>
-      </div>
 
-      {/* System */}
-      <div className="glass-card settings-section">
-        <div className="settings-section-title">System</div>
-
+        {/* AI Model */}
         <div className="settings-row">
           <div>
             <div className="settings-row-label">AI Model</div>
-            <div className="settings-row-sub">Claude version used for analysis</div>
+            <div className="settings-row-sub">Object detection model in use</div>
           </div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Claude 3.5</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>YOLOv8 Nano</div>
         </div>
+      </div>
 
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Camera Location</div>
-            <div className="settings-row-sub">Physical location label</div>
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Provo, UT</div>
-        </div>
-
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Camera ID</div>
-            <div className="settings-row-sub">Unique identifier for this unit</div>
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>CAM-01</div>
+      {/* Note */}
+      <div className="glass-card settings-section" style={{ borderLeft: '3px solid rgba(29,110,244,0.6)' }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Note:</span>{' '}
+          Settings are applied when <code style={{ fontFamily: 'monospace', fontSize: 12, background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 4 }}>camera.py</code> starts.
+          Restart the camera script after making changes.
         </div>
       </div>
     </div>

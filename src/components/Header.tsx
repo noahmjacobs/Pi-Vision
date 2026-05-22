@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Page } from '../App'
 
-const NAV_ITEMS: Page[] = ['Dashboard', 'Analytics', 'Alerts', 'Settings']
+const NAV_ITEMS: Page[] = ['Dashboard', 'Analytics', 'Settings']
 
 interface HeaderProps {
   currentPage: Page
