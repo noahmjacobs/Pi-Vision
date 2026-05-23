@@ -99,7 +99,7 @@ COMPANY_ID=kahuku-apps-llc DEVICE_ID=cam2 STREAM_PORT=8081 python3 camera.py
 | `STREAM_PORT` | `8080` | LAN MJPEG stream port — change if running multiple cameras on same machine |
 | `YOLO_MODEL` | `yolov8n.pt` | YOLO model weights (downloads automatically on first run) |
 | `YOLO_CONFIDENCE` | `0.45` | Detection confidence threshold (0–1) |
-| `YOLO_SKIP` | `2` | Run YOLO every Nth frame — increase on slower hardware |
+| `YOLO_SKIP` | `1` | Run YOLO every Nth frame — set to 2 or 3 if Pi can't keep up |
 | `COUNT_LINE_POS` | `0.5` | Counting line position as fraction of frame height (0=top, 1=bottom) |
 | `COUNT_DIRECTION` | `down` | Direction to count: `down`, `up`, `left`, `right`, `both` |
 

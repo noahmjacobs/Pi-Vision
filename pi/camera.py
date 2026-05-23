@@ -18,7 +18,7 @@ Optional env vars:
   CAMERA_INDEX        USB camera device index (default: 0)
   YOLO_MODEL          Model weights file (default: yolov8n.pt — downloads automatically)
   YOLO_CONFIDENCE     Detection confidence threshold 0–1 (default: 0.45)
-  YOLO_SKIP           Run YOLO every Nth frame (default: 2 — helps on slower hardware)
+  YOLO_SKIP           Run YOLO every Nth frame (default: 1 — set to 2 or 3 on slower hardware)
   COUNT_LINE_POS      Counting line position as fraction of frame height (default: 0.5)
 """
 
@@ -51,7 +51,7 @@ STREAM_PORT   = int(os.environ.get("STREAM_PORT", "8080"))
 
 YOLO_MODEL      = os.environ.get("YOLO_MODEL", "yolov8n.pt")
 YOLO_CONFIDENCE = float(os.environ.get("YOLO_CONFIDENCE", "0.45"))
-YOLO_SKIP       = int(os.environ.get("YOLO_SKIP", "2"))
+YOLO_SKIP       = int(os.environ.get("YOLO_SKIP", "1"))
 COUNT_LINE_POS  = float(os.environ.get("COUNT_LINE_POS", "0.5"))  # fraction of relevant frame dimension
 COUNT_DIRECTION = os.environ.get("COUNT_DIRECTION", "down")        # down | up | right | left | both
 
