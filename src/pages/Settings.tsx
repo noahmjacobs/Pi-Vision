@@ -100,9 +100,11 @@ export default function Settings() {
             value={countDirection}
             onChange={e => setCountDirection(e.target.value)}
           >
-            <option value="down">Down only (entering)</option>
-            <option value="up">Up only (exiting)</option>
-            <option value="both">Both directions</option>
+            <option value="down">Downward</option>
+            <option value="up">Upward</option>
+            <option value="right">Left to Right</option>
+            <option value="left">Right to Left</option>
+            <option value="both">Both Directions</option>
           </select>
         </div>
 

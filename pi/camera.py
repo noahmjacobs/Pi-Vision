@@ -54,7 +54,8 @@ ANALYSIS_INTERVAL = int(os.environ.get("ANALYSIS_INTERVAL", "60"))
 YOLO_MODEL      = os.environ.get("YOLO_MODEL", "yolov8n.pt")
 YOLO_CONFIDENCE = float(os.environ.get("YOLO_CONFIDENCE", "0.45"))
 YOLO_SKIP       = int(os.environ.get("YOLO_SKIP", "2"))
-COUNT_LINE_POS  = float(os.environ.get("COUNT_LINE_POS", "0.5"))  # fraction of frame height
+COUNT_LINE_POS  = float(os.environ.get("COUNT_LINE_POS", "0.5"))  # fraction of relevant frame dimension
+COUNT_DIRECTION = os.environ.get("COUNT_DIRECTION", "down")        # down | up | right | left | both
 
 FRAME_WIDTH  = 1280
 FRAME_HEIGHT = 720
@@ -129,23 +130,24 @@ class CentroidTracker:
 
         return self.centroids
 
-    def check_crossings(self, line_y: int, direction: str = "down") -> int:
+    def check_crossings(self, line_pos: int, axis: str = "y", direction: str = "down") -> int:
         """Returns number of people who crossed the line this frame.
 
-        direction='down'  → only count above→below crossings (entering)
-        direction='up'    → only count below→above crossings (exiting)
-        direction='both'  → count crossings in either direction
+        axis='y'  → horizontal line, tracks vertical movement (down/up)
+        axis='x'  → vertical line, tracks horizontal movement (right/left)
+        direction: down | up | right | left | both
         """
         count = 0
-        for oid, (_, cy) in self.centroids.items():
-            side = "above" if cy < line_y else "below"
+        for oid, (cx, cy) in self.centroids.items():
+            pos  = cy if axis == "y" else cx
+            side = "before" if pos < line_pos else "after"
             prev = self.sides.get(oid)
             if prev is not None and prev != side:
                 if direction == "both":
                     count += 1
-                elif direction == "down" and prev == "above" and side == "below":
+                elif direction in ("down", "right") and prev == "before" and side == "after":
                     count += 1
-                elif direction == "up" and prev == "below" and side == "above":
+                elif direction in ("up", "left") and prev == "after" and side == "before":
                     count += 1
             self.sides[oid] = side
         return count
@@ -305,6 +307,8 @@ def set_camera_status(connected: bool) -> None:
     }
     if connected:
         update["sessionStart"] = int(time.time() * 1000)
+    else:
+        update["sessionStart"] = 0  # stops uptime counter on dashboard
     rtdb.reference("camera").update(update)
     if not connected:
         rtdb.reference("camera/snapshot").set("")
@@ -346,16 +350,20 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
         "Loading YOLO model: %s  (confidence=%.2f  skip=%d  line=%.0f%%)",
         YOLO_MODEL, YOLO_CONFIDENCE, YOLO_SKIP, COUNT_LINE_POS * 100,
     )
-    model   = YOLO(YOLO_MODEL)
-    tracker = CentroidTracker()
-    line_y  = int(FRAME_HEIGHT * COUNT_LINE_POS)
+    model     = YOLO(YOLO_MODEL)
+    tracker   = CentroidTracker()
+    axis      = "x" if COUNT_DIRECTION in ("left", "right") else "y"
+    line_pos  = int((FRAME_WIDTH if axis == "x" else FRAME_HEIGHT) * COUNT_LINE_POS)
 
     people_count     = 0
     last_analysis_at = 0.0
     latest_frame     = None
     frame_lock       = threading.Lock()
 
-    log.info("People counter ready — counting line at y=%d px", line_y)
+    log.info(
+        "People counter ready — %s line at %d px  direction=%s",
+        "vertical" if axis == "x" else "horizontal", line_pos, COUNT_DIRECTION,
+    )
 
     # ── Snapshot worker: 1 frame/second → Realtime Database ───────────────────
     def snapshot_worker() -> None:
@@ -368,7 +376,10 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
                 continue
             # Draw counting line so users can see it on the dashboard
             annotated = f.copy()
-            cv2.line(annotated, (0, line_y), (FRAME_WIDTH, line_y), (0, 200, 255), 2)
+            if axis == "x":
+                cv2.line(annotated, (line_pos, 0), (line_pos, FRAME_HEIGHT), (0, 200, 255), 2)
+            else:
+                cv2.line(annotated, (0, line_pos), (FRAME_WIDTH, line_pos), (0, 200, 255), 2)
             small = cv2.resize(annotated, (SNAPSHOT_W, SNAPSHOT_H))
             _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 60])
             b64 = base64.b64encode(buf).decode("utf-8")
@@ -436,7 +447,7 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
                 centroids.append(((x1 + x2) // 2, (y1 + y2) // 2))
 
             tracker.update(centroids)
-            crossings = tracker.check_crossings(line_y, direction="down")
+            crossings = tracker.check_crossings(line_pos, axis=axis, direction=COUNT_DIRECTION)
 
             if crossings > 0:
                 people_count += crossings
@@ -469,13 +480,16 @@ def main() -> None:
 
     # Load config from Firebase and override defaults if present
     fb_config = load_firebase_config()
-    global COUNT_LINE_POS, YOLO_CONFIDENCE
+    global COUNT_LINE_POS, YOLO_CONFIDENCE, COUNT_DIRECTION
     if "linePosition" in fb_config:
         COUNT_LINE_POS = float(fb_config["linePosition"]) / 100.0
-        log.info("Firebase config: COUNT_LINE_POS overridden to %.2f", COUNT_LINE_POS)
+        log.info("Firebase config: linePosition=%.2f", COUNT_LINE_POS)
     if "confidence" in fb_config:
         YOLO_CONFIDENCE = float(fb_config["confidence"]) / 100.0
-        log.info("Firebase config: YOLO_CONFIDENCE overridden to %.2f", YOLO_CONFIDENCE)
+        log.info("Firebase config: confidence=%.2f", YOLO_CONFIDENCE)
+    if "countDirection" in fb_config:
+        COUNT_DIRECTION = str(fb_config["countDirection"])
+        log.info("Firebase config: countDirection=%s", COUNT_DIRECTION)
 
     frame_buf = FrameBuffer()
     start_mjpeg_server(frame_buf, STREAM_PORT)
