@@ -13,6 +13,8 @@ Requirements:
   2. Run: python3 camera.py
 
 Optional env vars:
+  COMPANY_ID          Company identifier in Firebase (default: default)
+  DEVICE_ID           Camera/device identifier in Firebase (default: cam1)
   CAMERA_INDEX        USB camera device index (default: 0)
   YOLO_MODEL          Model weights file (default: yolov8n.pt — downloads automatically)
   YOLO_CONFIDENCE     Detection confidence threshold 0–1 (default: 0.45)
@@ -42,8 +44,10 @@ FIREBASE_DB_URL  = "https://pivision-28ddb-default-rtdb.firebaseio.com"
 FIREBASE_PROJECT = "pivision-28ddb"
 SERVICE_ACCOUNT  = os.path.join(os.path.dirname(__file__), "serviceAccount.json")
 
-CAMERA_INDEX      = int(os.environ.get("CAMERA_INDEX", "0"))
-STREAM_PORT       = int(os.environ.get("STREAM_PORT", "8080"))
+COMPANY_ID    = os.environ.get("COMPANY_ID", "default")
+DEVICE_ID     = os.environ.get("DEVICE_ID",  "cam1")
+CAMERA_INDEX  = int(os.environ.get("CAMERA_INDEX", "0"))
+STREAM_PORT   = int(os.environ.get("STREAM_PORT", "8080"))
 
 YOLO_MODEL      = os.environ.get("YOLO_MODEL", "yolov8n.pt")
 YOLO_CONFIDENCE = float(os.environ.get("YOLO_CONFIDENCE", "0.45"))
@@ -65,6 +69,9 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("PiVision")
+
+def db_path(subpath: str) -> str:
+    return f"companies/{COMPANY_ID}/devices/{DEVICE_ID}/{subpath}"
 
 
 # ── Centroid tracker ───────────────────────────────────────────────────────────
@@ -245,7 +252,7 @@ def init_firebase() -> None:
 # ── Firebase helpers ───────────────────────────────────────────────────────────
 def push_event(event_type: str, label: str, sublabel: str) -> None:
     event_id = uuid.uuid4().hex[:8]
-    rtdb.reference(f"events/{event_id}").set({
+    rtdb.reference(db_path(f"events/{event_id}")).set({
         "id":        event_id,
         "timestamp": int(time.time() * 1000),
         "type":      event_type,
@@ -255,17 +262,16 @@ def push_event(event_type: str, label: str, sublabel: str) -> None:
 
 
 def update_people_count(count: int) -> None:
-    rtdb.reference("stats/peopleCount").set(count)
+    rtdb.reference(db_path("stats/peopleCount")).set(count)
 
 
 def update_stats_last_event(label: str) -> None:
-    rtdb.reference("stats/lastEvent").set(label)
+    rtdb.reference(db_path("stats/lastEvent")).set(label)
 
 
 def increment_daily_count(crossings: int) -> None:
-    """Reads counts/{YYYY-MM-DD}/total and increments it by crossings."""
     date_key = datetime.now().strftime("%Y-%m-%d")
-    path = f"counts/{date_key}/total"
+    path = db_path(f"counts/{date_key}/total")
     try:
         current = rtdb.reference(path).get() or 0
         rtdb.reference(path).set(current + crossings)
@@ -274,9 +280,8 @@ def increment_daily_count(crossings: int) -> None:
 
 
 def load_firebase_config() -> dict:
-    """Reads config node from Firebase and returns it as a dict."""
     try:
-        result = rtdb.reference("config").get()
+        result = rtdb.reference(db_path("config")).get()
         if isinstance(result, dict):
             return result
         return {}
@@ -295,11 +300,11 @@ def set_camera_status(connected: bool) -> None:
     if connected:
         update["sessionStart"] = int(time.time() * 1000)
     else:
-        update["sessionStart"] = 0  # stops uptime counter on dashboard
-    rtdb.reference("camera").update(update)
+        update["sessionStart"] = 0
+    rtdb.reference(db_path("camera")).update(update)
     if not connected:
-        rtdb.reference("camera/snapshot").set("")
-        rtdb.reference("stats/peopleCount").set(0)
+        rtdb.reference(db_path("camera/snapshot")).set("")
+        rtdb.reference(db_path("stats/peopleCount")).set(0)
 
 
 # ── Camera + people counting loop ─────────────────────────────────────────────
@@ -341,7 +346,7 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer) -> None:
             _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 60])
             b64 = base64.b64encode(buf).decode("utf-8")
             try:
-                rtdb.reference("camera/snapshot").set(b64)
+                rtdb.reference(db_path("camera/snapshot")).set(b64)
             except Exception as exc:
                 log.warning("Snapshot write failed: %s", exc)
 
@@ -401,6 +406,7 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer) -> None:
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main() -> None:
+    log.info("Company: %s  Device: %s", COMPANY_ID, DEVICE_ID)
     init_firebase()
 
     # Load config from Firebase and override defaults if present

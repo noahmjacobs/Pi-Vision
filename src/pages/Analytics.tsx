@@ -1,29 +1,31 @@
 import { useMemo, useState } from 'react'
 import { useFirebaseValue } from '../hooks/useFirebaseData'
+import { useAuth } from '../context/AuthContext'
 import { DBEvent } from '../types'
 
 const localDate = (ts: number) => new Date(ts).toLocaleDateString('en-CA')
 
 export default function Analytics() {
+  const { devicePath } = useAuth()
   const todayStr = new Date().toLocaleDateString('en-CA')
   const [selectedDate, setSelectedDate] = useState(todayStr)
   const [hoveredHour, setHoveredHour]   = useState<number | null>(null)
   const [hoveredDay, setHoveredDay]     = useState<number | null>(null)
 
   const { data: eventsRaw } = useFirebaseValue<Record<string, DBEvent>>(
-    'events',
+    devicePath('events'),
     {} as Record<string, DBEvent>,
     { cache: false }
   )
 
   const { data: dailyTotal } = useFirebaseValue<number>(
-    `counts/${selectedDate}/total`,
+    devicePath(`counts/${selectedDate}/total`),
     0,
     { cache: false }
   )
 
   const { data: allCounts } = useFirebaseValue<Record<string, { total: number }>>(
-    'counts',
+    devicePath('counts'),
     {},
     { cache: false }
   )

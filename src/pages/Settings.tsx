@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { ref, set } from 'firebase/database'
 import { db } from '../firebase'
+import { useAuth } from '../context/AuthContext'
 
 const LS_KEY = 'pv_config'
 
@@ -13,6 +14,7 @@ function saveLocal(cfg: object) {
 }
 
 export default function Settings() {
+  const { devicePath } = useAuth()
   const saved = loadLocal()
 
   const [linePosition,   setLinePosition]   = useState<number>(saved.linePosition   ?? 50)
@@ -27,10 +29,10 @@ export default function Settings() {
     saveLocal(cfg)
     try {
       await Promise.all([
-        set(ref(db, 'config/linePosition'),   linePosition),
-        set(ref(db, 'config/countDirection'), countDirection),
-        set(ref(db, 'config/confidence'),     confidence),
-        set(ref(db, 'config/cameraIndex'),    cameraIndex),
+        set(ref(db, devicePath('config/linePosition')),   linePosition),
+        set(ref(db, devicePath('config/countDirection')), countDirection),
+        set(ref(db, devicePath('config/confidence')),     confidence),
+        set(ref(db, devicePath('config/cameraIndex')),    cameraIndex),
       ])
       setStatus('saved')
     } catch (err) {

@@ -9,6 +9,7 @@ import { useFirebaseValue } from '../hooks/useFirebaseData'
 import { MOCK_STATS, MOCK_CAMERA, MOCK_EVENTS } from '../mockData'
 import { DBStats, DBCamera, DBEvent } from '../types'
 import { type Page } from '../App'
+import { useAuth } from '../context/AuthContext'
 
 function PeopleIcon({ color }: { color: string }) {
   return (
@@ -40,9 +41,10 @@ function formatUptime(ms: number): string {
 }
 
 export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
-  const { data: stats, loading: statsLoading } = useFirebaseValue<DBStats>('stats', MOCK_STATS)
-  const { data: camera }                       = useFirebaseValue<DBCamera>('camera', MOCK_CAMERA)
-  const { data: eventsRaw, loading: eventsLoading } = useFirebaseValue<Record<string, DBEvent>>('events', {} as Record<string, DBEvent>)
+  const { devicePath } = useAuth()
+  const { data: stats, loading: statsLoading } = useFirebaseValue<DBStats>(devicePath('stats'), MOCK_STATS)
+  const { data: camera }                       = useFirebaseValue<DBCamera>(devicePath('camera'), MOCK_CAMERA)
+  const { data: eventsRaw, loading: eventsLoading } = useFirebaseValue<Record<string, DBEvent>>(devicePath('events'), {} as Record<string, DBEvent>)
 
   const [uptime, setUptime] = useState('—')
 
@@ -75,7 +77,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => 
             iconBg="rgba(29,110,244,0.12)"
             loading={statsLoading}
             showReset={camera?.piConnected}
-            onReset={() => set(ref(db, 'stats/peopleCount'), 0)}
+            onReset={() => set(ref(db, devicePath('stats/peopleCount')), 0)}
           />
           <StatCard
             label="Uptime"
