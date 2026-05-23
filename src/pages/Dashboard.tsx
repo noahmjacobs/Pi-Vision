@@ -58,7 +58,7 @@ export default function Dashboard() {
   }, [camera?.sessionStart])
 
   const events: DBEvent[] = Object.values(eventsRaw).length > 0
-    ? Object.values(eventsRaw).sort((a, b) => b.timestamp - a.timestamp).slice(0, 8)
+    ? Object.values(eventsRaw).sort((a, b) => b.timestamp - a.timestamp).slice(0, 4)
     : MOCK_EVENTS
 
   return (
