@@ -11,6 +11,7 @@ interface AddCompanyForm {
   password: string
   cameraName: string
   cameraId: string
+  mode: 'people_counter' | 'seatbelt'
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -89,7 +90,7 @@ export default function Admin({ onNavigate }: { onNavigate: (page: Page) => void
   const { allCompanies } = useAuth()
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm]       = useState<AddCompanyForm>({
-    companyName: '', email: '', password: '', cameraName: '', cameraId: '',
+    companyName: '', email: '', password: '', cameraName: '', cameraId: '', mode: 'people_counter',
   })
   const [saving, setSaving]   = useState(false)
   const [err, setErr]         = useState('')
@@ -117,11 +118,12 @@ export default function Admin({ onNavigate }: { onNavigate: (page: Page) => void
       await Promise.all([
         set(ref(db, `users/${uid}`), { companyId: cId, role: 'user', email }),
         set(ref(db, `companies/${cId}/name`), companyName.trim()),
+        set(ref(db, `companies/${cId}/mode`), form.mode),
         set(ref(db, `companies/${cId}/devices/${cameraId.trim()}`), { name: cameraName.trim() }),
       ])
 
       setSuccess(`"${companyName}" created. Login: ${email}`)
-      setForm({ companyName: '', email: '', password: '', cameraName: '', cameraId: '' })
+      setForm({ companyName: '', email: '', password: '', cameraName: '', cameraId: '', mode: 'people_counter' })
       setShowAdd(false)
     } catch (e: any) {
       setErr(e?.message ?? 'Failed to create company.')
@@ -169,6 +171,26 @@ export default function Admin({ onNavigate }: { onNavigate: (page: Page) => void
             <input style={inputStyle} value={form.companyName} autoFocus
               onChange={e => setForm(f => ({ ...f, companyName: e.target.value }))}
               placeholder="e.g. Acme Corp" />
+          </Field>
+          <Field label="Camera Mode">
+            <div style={{ display: 'flex', gap: 8 }}>
+              {(['people_counter', 'seatbelt'] as const).map(m => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, mode: m }))}
+                  style={{
+                    flex: 1, padding: '9px 12px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+                    fontFamily: 'var(--font)', cursor: 'pointer',
+                    border: form.mode === m ? '1.5px solid var(--accent-blue)' : '1px solid rgba(0,0,0,0.1)',
+                    background: form.mode === m ? 'rgba(29,110,244,0.08)' : 'rgba(0,0,0,0.03)',
+                    color: form.mode === m ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                  }}
+                >
+                  {m === 'people_counter' ? '🚶 People Counter' : '🚗 Seatbelt Compliance'}
+                </button>
+              ))}
+            </div>
           </Field>
           <Field label="Login Email">
             <input style={inputStyle} type="email" value={form.email}

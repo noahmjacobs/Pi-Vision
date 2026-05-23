@@ -5,10 +5,26 @@ export interface DBStats {
   lastEvent: string
 }
 
+export interface DBSeatbeltStats {
+  violationCount: number
+  totalVehicles: number
+  lastEvent: string
+}
+
 export interface DBEvent {
   id: string
   timestamp: number
   type: 'motion' | 'object' | 'person'
+  label: string
+  sublabel: string
+}
+
+export interface DBViolationEvent {
+  id: string
+  timestamp: number
+  type: 'violation'
+  vehicleType: 'car' | 'truck' | 'van'
+  unbelted: number
   label: string
   sublabel: string
 }

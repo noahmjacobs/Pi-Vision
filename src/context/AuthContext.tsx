@@ -17,6 +17,7 @@ export interface Device {
 export interface Company {
   id: string
   name: string
+  mode: string   // 'people_counter' | 'seatbelt'
   devices: Device[]
 }
 
@@ -26,9 +27,10 @@ interface AuthContextValue {
   isAdmin: boolean
   companyId: string
   companyName: string
+  companyMode: string
   devices: Device[]
   deviceId: string
-  allCompanies: Company[]           // admin only
+  allCompanies: Company[]
   adminViewAs: (companyId: string, deviceId: string) => void
   setDeviceId: (id: string) => void
   devicePath: (subpath: string) => string
@@ -44,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin]         = useState(false)
   const [companyId, setCompanyId]     = useState('')
   const [companyName, setCompanyName] = useState('')
+  const [companyMode, setCompanyMode] = useState('people_counter')
   const [devices, setDevices]         = useState<Device[]>([])
   const [allCompanies, setAllCompanies] = useState<Company[]>([])
   const [deviceId, setDeviceIdState]  = useState(
@@ -58,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsAdmin(false)
         setCompanyId('')
         setCompanyName('')
+        setCompanyMode('people_counter')
         setDevices([])
         setAllCompanies([])
       }
@@ -82,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => off(r, 'value', h)
   }, [user])
 
-  // Admin: load ALL companies
+  // Admin: load ALL companies (including mode)
   useEffect(() => {
     if (!isAdmin) return
     const r = ref(db, 'companies')
@@ -92,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const list: Company[] = Object.entries(raw).map(([id, val]) => ({
         id,
         name: val.name ?? id,
+        mode: val.mode ?? 'people_counter',
         devices: val.devices
           ? Object.entries(val.devices as Record<string, any>).map(([did, dval]) => ({
               id: did,
@@ -106,12 +111,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => off(r, 'value', h)
   }, [isAdmin])
 
-  // Regular user: load their company name + devices
+  // Regular user: load their company name, mode, and devices
   useEffect(() => {
     if (!companyId || isAdmin) return
     const nameRef    = ref(db, `companies/${companyId}/name`)
+    const modeRef    = ref(db, `companies/${companyId}/mode`)
     const devicesRef = ref(db, `companies/${companyId}/devices`)
     const nameH = (snap: any) => { if (snap.exists()) setCompanyName(snap.val()) }
+    const modeH = (snap: any) => { setCompanyMode(snap.exists() ? snap.val() : 'people_counter') }
     const devH  = (snap: any) => {
       if (!snap.exists()) return
       const list: Device[] = Object.entries(snap.val() as Record<string, any>).map(([id, val]) => ({
@@ -126,9 +133,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     onValue(nameRef, nameH)
+    onValue(modeRef, modeH)
     onValue(devicesRef, devH)
     return () => {
       off(nameRef, 'value', nameH)
+      off(modeRef, 'value', modeH)
       off(devicesRef, 'value', devH)
     }
   }, [companyId, isAdmin])
@@ -144,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!company) return
     setCompanyId(cId)
     setCompanyName(company.name)
+    setCompanyMode(company.mode)
     setDevices(company.devices)
     setDeviceIdState(dId)
     localStorage.setItem('pv_deviceId', dId)
@@ -159,13 +169,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fbSignOut(auth)
     setDeviceIdState('')
     setCompanyId('')
+    setCompanyMode('people_counter')
     localStorage.removeItem('pv_deviceId')
   }
 
   return (
     <AuthContext.Provider value={{
       user, authLoading, isAdmin,
-      companyId, companyName, devices, deviceId,
+      companyId, companyName, companyMode, devices, deviceId,
       allCompanies, adminViewAs,
       setDeviceId, devicePath,
       signIn, signOut,

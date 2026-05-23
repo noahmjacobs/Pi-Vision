@@ -6,7 +6,7 @@ import CameraFeed from '../components/CameraFeed'
 import RecentEvents from '../components/RecentEvents'
 import StatusBar from '../components/StatusBar'
 import { useFirebaseValue } from '../hooks/useFirebaseData'
-import { DBStats, DBCamera, DBEvent } from '../types'
+import { DBStats, DBSeatbeltStats, DBCamera, DBEvent, DBViolationEvent } from '../types'
 import { type Page } from '../App'
 import { useAuth } from '../context/AuthContext'
 
@@ -30,6 +30,24 @@ function Clock({ color }: { color: string }) {
   )
 }
 
+function CarIcon({ color }: { color: string }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 17H3a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1l2-4h10l2 4h1a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-2" />
+      <circle cx="7" cy="17" r="2" />
+      <circle cx="17" cy="17" r="2" />
+    </svg>
+  )
+}
+
+function ShieldIcon({ color }: { color: string }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  )
+}
+
 function formatUptime(ms: number): string {
   const h = Math.floor(ms / 3600000)
   const m = Math.floor((ms % 3600000) / 60000)
@@ -39,7 +57,7 @@ function formatUptime(ms: number): string {
   return `${s}s`
 }
 
-export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
+function PeopleCounterDashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const { devicePath } = useAuth()
   const { data: stats, loading: statsLoading } = useFirebaseValue<DBStats>(devicePath('stats'), { peopleCount: 0, lastEvent: '' })
   const { data: camera }                       = useFirebaseValue<DBCamera>(devicePath('camera'), { piConnected: false, status: 'Offline', fps: 0, resolution: '' })
@@ -48,10 +66,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => 
   const [uptime, setUptime] = useState('—')
 
   useEffect(() => {
-    if (!camera?.sessionStart) {
-      setUptime('—')
-      return
-    }
+    if (!camera?.sessionStart) { setUptime('—'); return }
     const start = camera.sessionStart
     const update = () => setUptime(formatUptime(Date.now() - start))
     update()
@@ -87,8 +102,59 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => 
           <RecentEvents events={events} loading={eventsLoading} onSeeAll={() => onNavigate('Analytics')} />
         </div>
       </div>
-
       <StatusBar camera={camera} />
     </div>
   )
+}
+
+function SeatbeltDashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
+  const { devicePath } = useAuth()
+  const { data: stats, loading: statsLoading } = useFirebaseValue<DBSeatbeltStats>(devicePath('stats'), { violationCount: 0, totalVehicles: 0, lastEvent: '' })
+  const { data: camera }                       = useFirebaseValue<DBCamera>(devicePath('camera'), { piConnected: false, status: 'Offline', fps: 0, resolution: '' })
+  const { data: eventsRaw, loading: eventsLoading } = useFirebaseValue<Record<string, DBViolationEvent>>(devicePath('events'), {} as Record<string, DBViolationEvent>)
+
+  const violationCount = camera?.piConnected ? (stats?.violationCount ?? 0) : 0
+  const totalVehicles  = stats?.totalVehicles ?? 0
+  const complianceRate = totalVehicles > 0
+    ? Math.round(((totalVehicles - violationCount) / totalVehicles) * 100)
+    : null
+
+  // Convert violation events to the shape RecentEvents expects
+  const rawViolations = Object.values(eventsRaw) as unknown as DBEvent[]
+  const events: DBEvent[] = rawViolations.sort((a, b) => b.timestamp - a.timestamp).slice(0, 6)
+
+  return (
+    <div className="dashboard">
+      <div className="middle-row">
+        <CameraFeed />
+        <div className="right-panel">
+          <StatCard
+            label="Violations Today"
+            value={violationCount.toLocaleString()}
+            sub="unbelted occupants"
+            icon={<CarIcon color="#ef4444" />}
+            iconBg="rgba(239,68,68,0.12)"
+            loading={statsLoading}
+          />
+          <StatCard
+            label="Compliance Rate"
+            value={complianceRate !== null ? `${complianceRate}%` : '—'}
+            sub={totalVehicles > 0 ? `${totalVehicles} vehicles seen` : 'no vehicles yet'}
+            icon={<ShieldIcon color="#22c55e" />}
+            iconBg="rgba(34,197,94,0.12)"
+            loading={statsLoading}
+          />
+          <RecentEvents events={events} loading={eventsLoading} onSeeAll={() => onNavigate('Analytics')} />
+        </div>
+      </div>
+      <StatusBar camera={camera} />
+    </div>
+  )
+}
+
+export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
+  const { companyMode } = useAuth()
+  return companyMode === 'seatbelt'
+    ? <SeatbeltDashboard onNavigate={onNavigate} />
+    : <PeopleCounterDashboard onNavigate={onNavigate} />
 }
