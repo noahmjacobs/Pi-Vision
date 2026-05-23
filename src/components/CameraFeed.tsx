@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useFirebaseValue } from '../hooks/useFirebaseData'
+import { useAuth } from '../context/AuthContext'
 
 function formatTimestamp(d: Date) {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`
@@ -15,9 +16,10 @@ function VideoIcon() {
 }
 
 export default function CameraFeed() {
+  const { devicePath } = useAuth()
   const [ts, setTs] = useState(formatTimestamp(new Date()))
-  const { data: snapshot } = useFirebaseValue<string>('camera/snapshot', '', { cache: false })
-  const { data: piIsOnline } = useFirebaseValue<boolean>('camera/piConnected', false)
+  const { data: snapshot }   = useFirebaseValue<string>(devicePath('camera/snapshot'), '', { cache: false })
+  const { data: piIsOnline } = useFirebaseValue<boolean>(devicePath('camera/piConnected'), false)
 
   const imgSrc = snapshot ? `data:image/jpeg;base64,${snapshot}` : ''
 

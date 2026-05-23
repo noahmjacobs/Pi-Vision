@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getDatabase } from 'firebase/database'
+import { getAuth } from 'firebase/auth'
 import { getAnalytics } from 'firebase/analytics'
 
 const firebaseConfig = {
@@ -13,10 +14,10 @@ const firebaseConfig = {
   databaseURL: "https://pivision-28ddb-default-rtdb.firebaseio.com",
 }
 
-export const app = initializeApp(firebaseConfig)
-export const db = getDatabase(app)
+export const app  = initializeApp(firebaseConfig)
+export const db   = getDatabase(app)
+export const auth = getAuth(app)
 
-// Only init analytics in browser
 if (typeof window !== 'undefined') {
   try { getAnalytics(app) } catch {}
 }

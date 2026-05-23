@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Page } from '../App'
+import { useAuth } from '../context/AuthContext'
 
 const NAV_ITEMS: Page[] = ['Dashboard', 'Analytics', 'Settings']
 
@@ -17,6 +18,7 @@ function formatTime(d: Date) {
 }
 
 export default function Header({ currentPage, onNavigate }: HeaderProps) {
+  const { companyName, devices, deviceId, setDeviceId, signOut } = useAuth()
   const [time, setTime] = useState(formatTime(new Date()))
 
   useEffect(() => {
@@ -24,18 +26,24 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
     return () => clearInterval(id)
   }, [])
 
+  const currentDevice = devices.find(d => d.id === deviceId)
+
   return (
     <header className="header">
       <div className="header-logo">
         <div className="logo-dot" />
         <span className="logo-text">PiVision</span>
+        {companyName && (
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 400, marginLeft: 4 }}>
+            · {companyName}
+          </span>
+        )}
         <div className="live-badge">
           <div className="live-dot" />
           <span className="live-text">Live</span>
         </div>
       </div>
 
-      {/* Hidden on mobile — replaced by BottomNav */}
       <nav className="header-nav" aria-label="Desktop navigation">
         {NAV_ITEMS.map(item => (
           <button
@@ -48,8 +56,55 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
         ))}
       </nav>
 
-      {/* Hidden on mobile */}
-      <div className="header-time">{time}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {/* Camera switcher — only shown when multiple devices */}
+        {devices.length > 1 && (
+          <select
+            value={deviceId}
+            onChange={e => setDeviceId(e.target.value)}
+            style={{
+              background: 'rgba(0,0,0,0.05)',
+              border: '1px solid rgba(0,0,0,0.1)',
+              borderRadius: 8,
+              color: 'var(--text-primary)',
+              fontSize: 13,
+              fontFamily: 'var(--font)',
+              fontWeight: 500,
+              padding: '5px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            {devices.map(d => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+        )}
+
+        {/* Single device — just show its name */}
+        {devices.length === 1 && currentDevice && (
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
+            {currentDevice.name}
+          </span>
+        )}
+
+        <div className="header-time">{time}</div>
+
+        <button
+          onClick={signOut}
+          style={{
+            background: 'none',
+            border: '1px solid rgba(0,0,0,0.1)',
+            borderRadius: 8,
+            padding: '5px 12px',
+            fontSize: 13,
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            fontFamily: 'var(--font)',
+          }}
+        >
+          Sign out
+        </button>
+      </div>
     </header>
   )
 }
