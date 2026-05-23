@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { ref, set, remove, onValue, off } from 'firebase/database'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext'
+import { PALETTE, deviceColor } from './Analytics'
 
 function loadLocal(camId: string) {
   try { return JSON.parse(localStorage.getItem(`pv_config_${camId}`) || '{}') } catch { return {} }
@@ -16,6 +17,94 @@ const inputStyle: React.CSSProperties = {
   border: '1px solid rgba(0,0,0,0.1)', background: 'rgba(0,0,0,0.04)',
   color: 'var(--text-primary)', fontSize: 14, fontFamily: 'var(--font)',
   boxSizing: 'border-box',
+}
+
+function CameraRow({ device, index, companyId, canRemove, onRemove }: {
+  device: { id: string; name: string; color?: string }
+  index: number
+  companyId: string
+  canRemove: boolean
+  onRemove: () => void
+}) {
+  const [editing,  setEditing]  = useState(false)
+  const [nameVal,  setNameVal]  = useState(device.name)
+  const [saving,   setSaving]   = useState(false)
+  const color = deviceColor(device.color, index)
+
+  async function saveName() {
+    if (!nameVal.trim()) return
+    setSaving(true)
+    await set(ref(db, `companies/${companyId}/devices/${device.id}/name`), nameVal.trim())
+    setSaving(false)
+    setEditing(false)
+  }
+
+  async function saveColor(c: string) {
+    await set(ref(db, `companies/${companyId}/devices/${device.id}/color`), c)
+  }
+
+  return (
+    <div className="settings-row" style={{ flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+        {/* Color dot */}
+        <div style={{ width: 12, height: 12, borderRadius: '50%', background: color, flexShrink: 0 }} />
+        {editing ? (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              autoFocus
+              value={nameVal}
+              onChange={e => setNameVal(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditing(false) }}
+              style={{ ...inputStyle, width: 160, padding: '5px 10px' }}
+            />
+            <button onClick={saveName} disabled={saving}
+              style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: 'var(--accent-blue)', color: '#fff', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font)', cursor: 'pointer' }}>
+              {saving ? '…' : 'Save'}
+            </button>
+            <button onClick={() => { setEditing(false); setNameVal(device.name) }}
+              style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid rgba(0,0,0,0.1)', background: 'none', fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font)', cursor: 'pointer' }}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="settings-row-label">{device.name}</div>
+              <button onClick={() => setEditing(true)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, color: 'var(--text-tertiary)', fontSize: 12, lineHeight: 1 }}
+                title="Rename">✏️</button>
+            </div>
+            <div className="settings-row-sub">ID: {device.id}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Color swatches */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        {PALETTE.map(c => (
+          <button key={c} onClick={() => saveColor(c)} title={c}
+            style={{
+              width: 20, height: 20, borderRadius: '50%', border: 'none',
+              background: c, cursor: 'pointer', flexShrink: 0,
+              boxShadow: color === c ? `0 0 0 2px #fff, 0 0 0 4px ${c}` : 'none',
+              transition: 'box-shadow 0.15s',
+            }}
+          />
+        ))}
+      </div>
+
+      {canRemove && (
+        <button onClick={onRemove}
+          style={{
+            background: 'none', border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: 8, padding: '5px 12px', fontSize: 12,
+            color: '#ef4444', cursor: 'pointer', fontFamily: 'var(--font)',
+          }}>
+          Remove
+        </button>
+      )}
+    </div>
+  )
 }
 
 export default function Settings() {
@@ -158,25 +247,15 @@ export default function Settings() {
       <div className="glass-card settings-section">
         <div className="settings-section-title">Cameras</div>
 
-        {devices.map(device => (
-          <div key={device.id} className="settings-row">
-            <div>
-              <div className="settings-row-label">{device.name}</div>
-              <div className="settings-row-sub">ID: {device.id}</div>
-            </div>
-            {devices.length > 1 && (
-              <button
-                onClick={() => removeCamera(device.id)}
-                style={{
-                  background: 'none', border: '1px solid rgba(239,68,68,0.3)',
-                  borderRadius: 8, padding: '5px 12px', fontSize: 12,
-                  color: '#ef4444', cursor: 'pointer', fontFamily: 'var(--font)',
-                }}
-              >
-                Remove
-              </button>
-            )}
-          </div>
+        {devices.map((device, i) => (
+          <CameraRow
+            key={device.id}
+            device={device}
+            index={i}
+            companyId={companyId}
+            canRemove={devices.length > 1}
+            onRemove={() => removeCamera(device.id)}
+          />
         ))}
 
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(0,0,0,0.06)' }}>

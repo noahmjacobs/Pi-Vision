@@ -11,6 +11,7 @@ import { auth, db } from '../firebase'
 export interface Device {
   id: string
   name: string
+  color?: string
 }
 
 export interface Company {
@@ -95,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? Object.entries(val.devices as Record<string, any>).map(([did, dval]) => ({
               id: did,
               name: dval.name ?? did,
+              color: dval.color,
             }))
           : [],
       }))
@@ -115,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const list: Device[] = Object.entries(snap.val() as Record<string, any>).map(([id, val]) => ({
         id,
         name: (val as any).name ?? id,
+        color: (val as any).color,
       }))
       setDevices(list)
       if (list.length === 1) {
