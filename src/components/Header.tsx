@@ -18,7 +18,7 @@ function formatTime(d: Date) {
 }
 
 export default function Header({ currentPage, onNavigate }: HeaderProps) {
-  const { companyName, devices, deviceId, setDeviceId, signOut, isAdmin } = useAuth()
+  const { companyName, signOut, isAdmin } = useAuth()
   const navItems: Page[] = isAdmin ? [...BASE_NAV, 'Admin'] : BASE_NAV
   const [time, setTime] = useState(formatTime(new Date()))
 
@@ -26,8 +26,6 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
     const id = setInterval(() => setTime(formatTime(new Date())), 15000)
     return () => clearInterval(id)
   }, [])
-
-  const currentDevice = devices.find(d => d.id === deviceId)
 
   return (
     <header className="header">
@@ -58,36 +56,6 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
       </nav>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {/* Camera switcher — only shown when multiple devices */}
-        {devices.length > 1 && (
-          <select
-            value={deviceId}
-            onChange={e => setDeviceId(e.target.value)}
-            style={{
-              background: 'rgba(0,0,0,0.05)',
-              border: '1px solid rgba(0,0,0,0.1)',
-              borderRadius: 8,
-              color: 'var(--text-primary)',
-              fontSize: 13,
-              fontFamily: 'var(--font)',
-              fontWeight: 500,
-              padding: '5px 10px',
-              cursor: 'pointer',
-            }}
-          >
-            {devices.map(d => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
-        )}
-
-        {/* Single device — just show its name */}
-        {devices.length === 1 && currentDevice && (
-          <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
-            {currentDevice.name}
-          </span>
-        )}
-
         <div className="header-time">{time}</div>
 
         <button
