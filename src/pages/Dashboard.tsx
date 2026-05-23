@@ -4,6 +4,7 @@ import { db } from '../firebase'
 import StatCard from '../components/StatCard'
 import CameraFeed from '../components/CameraFeed'
 import RecentEvents from '../components/RecentEvents'
+import RecentViolations from '../components/RecentViolations'
 import StatusBar from '../components/StatusBar'
 import { useFirebaseValue } from '../hooks/useFirebaseData'
 import { DBStats, DBSeatbeltStats, DBCamera, DBEvent, DBViolationEvent } from '../types'
@@ -119,9 +120,9 @@ function SeatbeltDashboard({ onNavigate }: { onNavigate: (page: Page) => void })
     ? Math.round(((totalVehicles - violationCount) / totalVehicles) * 100)
     : null
 
-  // Convert violation events to the shape RecentEvents expects
-  const rawViolations = Object.values(eventsRaw) as unknown as DBEvent[]
-  const events: DBEvent[] = rawViolations.sort((a, b) => b.timestamp - a.timestamp).slice(0, 6)
+  const violations: DBViolationEvent[] = Object.values(eventsRaw)
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 6)
 
   return (
     <div className="dashboard">
@@ -131,7 +132,7 @@ function SeatbeltDashboard({ onNavigate }: { onNavigate: (page: Page) => void })
           <StatCard
             label="Violations Today"
             value={violationCount.toLocaleString()}
-            sub="unbelted occupants"
+            sub="unbelted occupants detected"
             icon={<CarIcon color="#ef4444" />}
             iconBg="rgba(239,68,68,0.12)"
             loading={statsLoading}
@@ -139,12 +140,12 @@ function SeatbeltDashboard({ onNavigate }: { onNavigate: (page: Page) => void })
           <StatCard
             label="Compliance Rate"
             value={complianceRate !== null ? `${complianceRate}%` : '—'}
-            sub={totalVehicles > 0 ? `${totalVehicles} vehicles seen` : 'no vehicles yet'}
+            sub={totalVehicles > 0 ? `${totalVehicles} vehicles observed` : 'no vehicles yet'}
             icon={<ShieldIcon color="#22c55e" />}
             iconBg="rgba(34,197,94,0.12)"
             loading={statsLoading}
           />
-          <RecentEvents events={events} loading={eventsLoading} onSeeAll={() => onNavigate('Analytics')} />
+          <RecentViolations events={violations} loading={eventsLoading} onSeeAll={() => onNavigate('Analytics')} />
         </div>
       </div>
       <StatusBar camera={camera} />

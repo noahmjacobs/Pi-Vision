@@ -23,7 +23,7 @@ export interface DBViolationEvent {
   id: string
   timestamp: number
   type: 'violation'
-  vehicleType: 'car' | 'truck' | 'van'
+  vehicleType: 'car' | 'truck' | 'van' | 'motorcycle'
   unbelted: number
   label: string
   sublabel: string

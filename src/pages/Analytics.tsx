@@ -380,12 +380,13 @@ function PeopleCounterAnalytics() {
 }
 
 const VEHICLE_COLORS: Record<string, string> = {
-  car:   '#1d6ef4',
-  truck: '#f59e0b',
-  van:   '#a855f7',
+  car:        '#1d6ef4',
+  truck:      '#f59e0b',
+  van:        '#a855f7',
+  motorcycle: '#f97316',
 }
 const VEHICLE_LABELS: Record<string, string> = {
-  car: 'Car', truck: 'Truck', van: 'Van',
+  car: 'Car', truck: 'Truck', van: 'Van', motorcycle: 'Motorcycle',
 }
 
 function SeatbeltAnalytics() {
@@ -440,7 +441,7 @@ function SeatbeltAnalytics() {
     [allEvents, selectedDate, selectedHour])
 
   const byVehicleType = useMemo(() => {
-    const counts: Record<string, number> = { car: 0, truck: 0, van: 0 }
+    const counts: Record<string, number> = { car: 0, truck: 0, van: 0, motorcycle: 0 }
     for (const ev of filteredEvents) {
       const t = ev.vehicleType ?? 'car'
       counts[t] = (counts[t] ?? 0) + 1
@@ -487,7 +488,7 @@ function SeatbeltAnalytics() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <div className="page-title">Analytics</div>
-          <div className="page-subtitle">Seatbelt violations · all cameras</div>
+          <div className="page-subtitle">Seatbelt violations by vehicle · all cameras</div>
         </div>
         <input type="date" value={selectedDate} max={todayStr}
           onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
@@ -496,7 +497,7 @@ function SeatbeltAnalytics() {
 
       {/* 7-day overview */}
       <div className="glass-card chart-card">
-        <div className="chart-title">Last 7 Days — Violations</div>
+        <div className="chart-title">Last 7 Days — Unbelted Occupants</div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: WEEK_BAR_HEIGHT + 28, paddingBottom: 22, position: 'relative' }}>
           {weekData.map((day, i) => (
             <div key={day.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', position: 'relative', cursor: 'pointer' }}
@@ -528,7 +529,7 @@ function SeatbeltAnalytics() {
             <div style={{ fontSize: 48, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
               {filteredEvents.length.toLocaleString()}
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 16 }}>unbelted occupants detected</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 16 }}>vehicles with unbelted occupants</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>Filter hour:</span>
               <select value={selectedHour ?? ''} onChange={e => setSelectedHour(e.target.value === '' ? null : Number(e.target.value))}
@@ -569,7 +570,7 @@ function SeatbeltAnalytics() {
       {/* Hourly bar chart */}
       <div className="glass-card chart-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div className="chart-title" style={{ marginBottom: 0 }}>Violations by Hour</div>
+          <div className="chart-title" style={{ marginBottom: 0 }}>Violations by Hour of Day</div>
           {selectedHour !== null && <button onClick={() => setSelectedHour(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)' }}>Clear filter</button>}
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: BAR_HEIGHT + 24, paddingBottom: 20, position: 'relative' }}>
@@ -591,12 +592,17 @@ function SeatbeltAnalytics() {
 
       {/* Violation event log */}
       <div className="glass-card analytics-table-card">
-        <div className="table-title">Violation Log — {filteredEvents.length} events</div>
+        <div className="table-title">
+          Vehicle Log — {filteredEvents.length} violation{filteredEvents.length !== 1 ? 's' : ''}
+          {filteredEvents.length > 50 ? ` (showing 50 of ${filteredEvents.length})` : ''}
+        </div>
         {filteredEvents.length === 0 ? (
           <div style={{ color: 'var(--text-secondary)', fontSize: 14, padding: '16px 0' }}>No violations recorded for {selectedDate}.</div>
         ) : (
           <table className="events-table">
-            <thead><tr><th>Time</th><th>Vehicle</th><th>Details</th></tr></thead>
+            <thead>
+              <tr><th>Time</th><th>Vehicle</th><th>Unbelted</th><th>Details</th></tr>
+            </thead>
             <tbody>
               {filteredEvents.slice(0, 50).map(ev => (
                 <tr key={ev.id}>
@@ -609,6 +615,7 @@ function SeatbeltAnalytics() {
                       {VEHICLE_LABELS[ev.vehicleType] ?? ev.vehicleType}
                     </span>
                   </td>
+                  <td style={{ fontWeight: 600, color: '#ef4444' }}>{ev.unbelted}</td>
                   <td style={{ color: 'var(--text-secondary)' }}>{ev.sublabel}</td>
                 </tr>
               ))}
