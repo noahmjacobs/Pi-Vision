@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react'
 import { useFirebaseValue } from '../hooks/useFirebaseData'
 import { DBEvent } from '../types'
 
+const localDate = (ts: number) => new Date(ts).toLocaleDateString('en-CA')
+
 export default function Analytics() {
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = new Date().toLocaleDateString('en-CA')
   const [selectedDate, setSelectedDate] = useState(todayStr)
   const [hoveredHour, setHoveredHour]   = useState<number | null>(null)
   const [hoveredDay, setHoveredDay]     = useState<number | null>(null)
@@ -31,7 +33,7 @@ export default function Analytics() {
     for (let i = 6; i >= 0; i--) {
       const d = new Date()
       d.setDate(d.getDate() - i)
-      const key   = d.toISOString().split('T')[0]
+      const key   = d.toLocaleDateString('en-CA')
       const label = d.toLocaleDateString('en-US', { weekday: 'short' })
       const entry = (allCounts as Record<string, { total?: number }>)[key]
       days.push({ key, label, total: entry?.total ?? 0 })
@@ -45,7 +47,7 @@ export default function Analytics() {
     return Object.values(eventsRaw)
       .filter(ev => {
         if (ev.type !== 'person') return false
-        return new Date(ev.timestamp).toISOString().split('T')[0] === selectedDate
+        return localDate(ev.timestamp) === selectedDate
       })
       .sort((a, b) => b.timestamp - a.timestamp)
   }, [eventsRaw, selectedDate])
