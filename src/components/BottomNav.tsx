@@ -1,6 +1,7 @@
 import { Page } from '../App'
+import { useAuth } from '../context/AuthContext'
 
-const NAV_ITEMS: { page: Page; icon: JSX.Element; label: string }[] = [
+const BASE_NAV: { page: Page; icon: JSX.Element; label: string }[] = [
   {
     page: 'Dashboard',
     label: 'Dashboard',
@@ -36,15 +37,31 @@ const NAV_ITEMS: { page: Page; icon: JSX.Element; label: string }[] = [
   },
 ]
 
+const ADMIN_NAV_ITEM: { page: Page; icon: JSX.Element; label: string } = {
+  page: 'Admin',
+  label: 'Admin',
+  icon: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+}
+
 interface BottomNavProps {
   currentPage: Page
   onNavigate: (page: Page) => void
 }
 
 export default function BottomNav({ currentPage, onNavigate }: BottomNavProps) {
+  const { isAdmin } = useAuth()
+  const navItems = isAdmin ? [...BASE_NAV, ADMIN_NAV_ITEM] : BASE_NAV
+
   return (
     <nav className="bottom-nav" role="navigation" aria-label="Main navigation">
-      {NAV_ITEMS.map(({ page, icon, label }) => (
+      {navItems.map(({ page, icon, label }) => (
         <button
           key={page}
           className={`bottom-nav-item${currentPage === page ? ' active' : ''}`}

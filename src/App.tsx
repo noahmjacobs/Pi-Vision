@@ -5,13 +5,14 @@ import BottomNav from './components/BottomNav'
 import Dashboard from './pages/Dashboard'
 import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
+import Admin from './pages/Admin'
 import Login from './pages/Login'
 import DevicePicker from './pages/DevicePicker'
 
-export type Page = 'Dashboard' | 'Analytics' | 'Settings'
+export type Page = 'Dashboard' | 'Analytics' | 'Settings' | 'Admin'
 
 function AppInner() {
-  const { user, authLoading, devices, deviceId } = useAuth()
+  const { user, authLoading, isAdmin, devices, deviceId } = useAuth()
   const [page, setPage] = useState<Page>('Dashboard')
 
   if (authLoading) {
@@ -27,8 +28,8 @@ function AppInner() {
 
   if (!user) return <Login />
 
-  // Show picker if multiple devices and none selected
-  if (devices.length > 1 && !deviceId) return <DevicePicker />
+  // Show picker if multiple devices and none selected (skip for admin — they use adminViewAs)
+  if (!isAdmin && devices.length > 1 && !deviceId) return <DevicePicker />
 
   return (
     <div className="app-root">
@@ -37,6 +38,7 @@ function AppInner() {
         {page === 'Dashboard' && <Dashboard onNavigate={setPage} />}
         {page === 'Analytics' && <Analytics />}
         {page === 'Settings'  && <Settings />}
+        {page === 'Admin' && isAdmin && <Admin onNavigate={setPage} />}
       </main>
       <BottomNav currentPage={page} onNavigate={setPage} />
     </div>

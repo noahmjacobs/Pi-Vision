@@ -14,9 +14,12 @@ const firebaseConfig = {
   databaseURL: "https://pivision-28ddb-default-rtdb.firebaseio.com",
 }
 
-export const app  = initializeApp(firebaseConfig)
-export const db   = getDatabase(app)
-export const auth = getAuth(app)
+export const app          = initializeApp(firebaseConfig)
+export const db           = getDatabase(app)
+export const auth         = getAuth(app)
+// Secondary app used to create new users without signing out the admin
+export const secondaryApp  = initializeApp(firebaseConfig, 'secondary')
+export const secondaryAuth = getAuth(secondaryApp)
 
 if (typeof window !== 'undefined') {
   try { getAnalytics(app) } catch {}
