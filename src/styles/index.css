@@ -475,6 +475,42 @@ body {
   color: var(--text-tertiary);
 }
 
+/* ─── Camera tabs ────────────────────────────── */
+.camera-tabs {
+  display: flex;
+  border-top: 1px solid rgba(0,0,0,0.07);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.camera-tabs::-webkit-scrollbar { display: none; }
+
+.camera-tab {
+  flex: 1;
+  padding: 10px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+  min-width: 80px;
+}
+
+.camera-tab:hover {
+  color: var(--text-primary);
+}
+
+.camera-tab.active {
+  color: var(--accent-blue);
+  font-weight: 600;
+  border-bottom-color: var(--accent-blue);
+}
+
 /* ─── Right panel ────────────────────────────── */
 .right-panel {
   display: flex;
