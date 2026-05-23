@@ -304,6 +304,7 @@ body {
 /* Camera feed */
 .camera-card {
   overflow: hidden;
+  align-self: start;
 }
 
 .camera-feed-wrap {
