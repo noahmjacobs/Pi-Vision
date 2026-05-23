@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Page } from '../App'
 import { useAuth } from '../context/AuthContext'
 
-const NAV_ITEMS: Page[] = ['Dashboard', 'Analytics', 'Settings']
+const BASE_NAV: Page[] = ['Dashboard', 'Analytics', 'Settings']
 
 interface HeaderProps {
   currentPage: Page
@@ -18,7 +18,8 @@ function formatTime(d: Date) {
 }
 
 export default function Header({ currentPage, onNavigate }: HeaderProps) {
-  const { companyName, devices, deviceId, setDeviceId, signOut } = useAuth()
+  const { companyName, devices, deviceId, setDeviceId, signOut, isAdmin } = useAuth()
+  const navItems: Page[] = isAdmin ? [...BASE_NAV, 'Admin'] : BASE_NAV
   const [time, setTime] = useState(formatTime(new Date()))
 
   useEffect(() => {
@@ -45,7 +46,7 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
       </div>
 
       <nav className="header-nav" aria-label="Desktop navigation">
-        {NAV_ITEMS.map(item => (
+        {navItems.map(item => (
           <button
             key={item}
             className={`nav-btn${currentPage === item ? ' active' : ''}`}

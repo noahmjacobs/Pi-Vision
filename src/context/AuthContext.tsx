@@ -13,13 +13,22 @@ export interface Device {
   name: string
 }
 
+export interface Company {
+  id: string
+  name: string
+  devices: Device[]
+}
+
 interface AuthContextValue {
   user: User | null
   authLoading: boolean
+  isAdmin: boolean
   companyId: string
   companyName: string
   devices: Device[]
   deviceId: string
+  allCompanies: Company[]           // admin only
+  adminViewAs: (companyId: string, deviceId: string) => void
   setDeviceId: (id: string) => void
   devicePath: (subpath: string) => string
   signIn: (email: string, password: string) => Promise<void>
@@ -31,71 +40,110 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]               = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [isAdmin, setIsAdmin]         = useState(false)
   const [companyId, setCompanyId]     = useState('')
   const [companyName, setCompanyName] = useState('')
   const [devices, setDevices]         = useState<Device[]>([])
+  const [allCompanies, setAllCompanies] = useState<Company[]>([])
   const [deviceId, setDeviceIdState]  = useState(
     () => localStorage.getItem('pv_deviceId') ?? ''
   )
 
-  // Auth state listener
   useEffect(() => {
     return onAuthStateChanged(auth, u => {
       setUser(u)
       setAuthLoading(false)
       if (!u) {
+        setIsAdmin(false)
         setCompanyId('')
         setCompanyName('')
         setDevices([])
+        setAllCompanies([])
       }
     })
   }, [])
 
-  // Load company ID from users/{uid}
+  // Load user record → role + companyId
   useEffect(() => {
     if (!user) return
-    const r = ref(db, `users/${user.uid}/companyId`)
-    const h = (snap: any) => { if (snap.exists()) setCompanyId(snap.val()) }
+    const r = ref(db, `users/${user.uid}`)
+    const h = (snap: any) => {
+      if (!snap.exists()) return
+      const data = snap.val()
+      if (data.role === 'admin') {
+        setIsAdmin(true)
+      } else {
+        setIsAdmin(false)
+        setCompanyId(data.companyId ?? '')
+      }
+    }
     onValue(r, h)
     return () => off(r, 'value', h)
   }, [user])
 
-  // Load company name + devices list
+  // Admin: load ALL companies
   useEffect(() => {
-    if (!companyId) return
-
-    const nameRef    = ref(db, `companies/${companyId}/name`)
-    const devicesRef = ref(db, `companies/${companyId}/devices`)
-
-    const nameHandler = (snap: any) => {
-      if (snap.exists()) setCompanyName(snap.val())
-    }
-    const devicesHandler = (snap: any) => {
+    if (!isAdmin) return
+    const r = ref(db, 'companies')
+    const h = (snap: any) => {
       if (!snap.exists()) return
-      const raw = snap.val() as Record<string, { name?: string }>
-      const list: Device[] = Object.entries(raw).map(([id, val]) => ({
+      const raw = snap.val() as Record<string, any>
+      const list: Company[] = Object.entries(raw).map(([id, val]) => ({
         id,
         name: val.name ?? id,
+        devices: val.devices
+          ? Object.entries(val.devices as Record<string, any>).map(([did, dval]) => ({
+              id: did,
+              name: dval.name ?? did,
+            }))
+          : [],
+      }))
+      setAllCompanies(list)
+    }
+    onValue(r, h)
+    return () => off(r, 'value', h)
+  }, [isAdmin])
+
+  // Regular user: load their company name + devices
+  useEffect(() => {
+    if (!companyId || isAdmin) return
+    const nameRef    = ref(db, `companies/${companyId}/name`)
+    const devicesRef = ref(db, `companies/${companyId}/devices`)
+    const nameH = (snap: any) => { if (snap.exists()) setCompanyName(snap.val()) }
+    const devH  = (snap: any) => {
+      if (!snap.exists()) return
+      const list: Device[] = Object.entries(snap.val() as Record<string, any>).map(([id, val]) => ({
+        id,
+        name: (val as any).name ?? id,
       }))
       setDevices(list)
-      // Auto-select if only one device
       if (list.length === 1) {
         setDeviceIdState(list[0].id)
         localStorage.setItem('pv_deviceId', list[0].id)
       }
     }
-
-    onValue(nameRef, nameHandler)
-    onValue(devicesRef, devicesHandler)
+    onValue(nameRef, nameH)
+    onValue(devicesRef, devH)
     return () => {
-      off(nameRef,    'value', nameHandler)
-      off(devicesRef, 'value', devicesHandler)
+      off(nameRef, 'value', nameH)
+      off(devicesRef, 'value', devH)
     }
-  }, [companyId])
+  }, [companyId, isAdmin])
 
   const setDeviceId = (id: string) => {
     setDeviceIdState(id)
     localStorage.setItem('pv_deviceId', id)
+  }
+
+  // Admin can switch into any company/device view
+  const adminViewAs = (cId: string, dId: string) => {
+    const company = allCompanies.find(c => c.id === cId)
+    if (!company) return
+    setCompanyId(cId)
+    setCompanyName(company.name)
+    setDevices(company.devices)
+    setDeviceIdState(dId)
+    localStorage.setItem('pv_deviceId', dId)
   }
 
   const devicePath = (subpath: string) =>
@@ -107,13 +155,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     await fbSignOut(auth)
     setDeviceIdState('')
+    setCompanyId('')
     localStorage.removeItem('pv_deviceId')
   }
 
   return (
     <AuthContext.Provider value={{
-      user, authLoading, companyId, companyName,
-      devices, deviceId, setDeviceId, devicePath,
+      user, authLoading, isAdmin,
+      companyId, companyName, devices, deviceId,
+      allCompanies, adminViewAs,
+      setDeviceId, devicePath,
       signIn, signOut,
     }}>
       {children}
