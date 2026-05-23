@@ -3,29 +3,62 @@
 <head>
   <title>PiVision Admin Setup</title>
   <style>
-    body { font-family: system-ui; max-width: 420px; margin: 60px auto; padding: 0 24px; background: #f5f5f5; }
+    body { font-family: system-ui; max-width: 500px; margin: 60px auto; padding: 0 24px; background: #f5f5f5; color: #111; }
     h2 { margin-bottom: 8px; }
-    p  { color: #555; margin-bottom: 24px; }
-    input { width: 100%; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+    p  { color: #555; margin-bottom: 16px; font-size: 15px; }
+    .step { background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    .step-num { font-size: 12px; font-weight: 700; color: #1d6ef4; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    pre { background: #1e1e2e; color: #cdd6f4; padding: 14px; border-radius: 8px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; margin: 10px 0; }
+    input { width: 100%; padding: 10px 12px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
     button { width: 100%; padding: 11px; background: #1d6ef4; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
-    #status { margin-top: 16px; padding: 12px; border-radius: 8px; display: none; font-size: 14px; }
+    .copy-btn { background: #f0f0f0; color: #333; font-size: 12px; padding: 6px 14px; width: auto; border-radius: 6px; border: 1px solid #ccc; margin-top: 6px; cursor: pointer; }
+    a { color: #1d6ef4; }
+    #status { margin-top: 14px; padding: 12px; border-radius: 8px; display: none; font-size: 14px; white-space: pre-wrap; }
     .ok  { background: #dcfce7; color: #166534; }
     .err { background: #fee2e2; color: #991b1b; }
   </style>
 </head>
 <body>
   <h2>PiVision Admin Setup</h2>
-  <p>Sign in with your admin account to set <code>role: "admin"</code> in the database.</p>
 
-  <input id="email"    type="email"    placeholder="Admin email" />
-  <input id="password" type="password" placeholder="Password" />
-  <button onclick="run()">Set Admin Role</button>
-  <div id="status"></div>
+  <!-- Step 1: Rules -->
+  <div class="step">
+    <div class="step-num">Step 1 — Paste these rules into Firebase</div>
+    <p style="margin-bottom:8px">Go to <a href="https://console.firebase.google.com/project/pivision-28ddb/database/pivision-28ddb-default-rtdb/rules" target="_blank">Firebase → Realtime Database → Rules</a>, replace everything with this, and click <strong>Publish</strong>:</p>
+    <pre id="rules">{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (auth.uid === $uid && !data.exists()))"
+      }
+    },
+    "companies": {
+      "$companyId": {
+        ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('companyId').val() === $companyId)",
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('companyId').val() === $companyId)"
+      }
+    }
+  }
+}</pre>
+    <button class="copy-btn" onclick="copyRules()">Copy rules</button>
+  </div>
+
+  <!-- Step 2: Sign in -->
+  <div class="step">
+    <div class="step-num">Step 2 — Sign in and set admin role</div>
+    <input id="email"    type="email"    placeholder="Admin email" value="" />
+    <input id="password" type="password" placeholder="Password" />
+    <button onclick="run()">Set Admin Role</button>
+    <div id="status"></div>
+  </div>
 
   <script type="module">
-    import { initializeApp }            from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js'
+    import { initializeApp }                       from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js'
     import { getAuth, signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js'
-    import { getDatabase, ref, set }    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js'
+    import { getDatabase, ref, set }               from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js'
 
     const app = initializeApp({
       apiKey:      "AIzaSyAv8s0vErAwc3KZaRF55isbKTzhgjuwGNE",
@@ -38,26 +71,34 @@
 
     const ADMIN_UID = 'GGxaXSWuo4e9LmaIR6VSsFBU5aL2'
 
+    window.copyRules = () => {
+      navigator.clipboard.writeText(document.getElementById('rules').textContent)
+      event.target.textContent = 'Copied!'
+      setTimeout(() => event.target.textContent = 'Copy rules', 2000)
+    }
+
     window.run = async () => {
       const status = document.getElementById('status')
       status.style.display = 'none'
-      const email    = document.getElementById('email').value
+      const email    = document.getElementById('email').value.trim()
       const password = document.getElementById('password').value
       if (!email || !password) { show('err', 'Enter email and password.'); return }
       try {
         await signInWithEmailAndPassword(auth, email, password)
         await set(ref(db, `users/${ADMIN_UID}/role`), 'admin')
-        show('ok', '✓ Done! users/' + ADMIN_UID + '/role = "admin"\n\nYou can now sign in to the app and the Admin tab will appear.')
+        show('ok', '✓ Done! You can now sign in to the app — the Admin tab will appear.')
       } catch (e) {
-        show('err', '✗ ' + e.message)
+        if (e.message.includes('PERMISSION_DENIED')) {
+          show('err', '✗ Rules not updated yet.\n\nComplete Step 1 first — paste the rules into Firebase and click Publish, then try again.')
+        } else {
+          show('err', '✗ ' + e.message)
+        }
       }
     }
 
     function show(cls, msg) {
       const el = document.getElementById('status')
-      el.className = cls
-      el.style.display = 'block'
-      el.textContent = msg
+      el.className = cls; el.style.display = 'block'; el.textContent = msg
     }
   </script>
 </body>
