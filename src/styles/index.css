@@ -298,7 +298,7 @@ body {
   display: grid;
   grid-template-columns: 1fr 340px;
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 
 /* Camera feed */
@@ -479,6 +479,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  height: 100%;
+  min-height: 0;
 }
 
 /* Claude Analysis */
@@ -547,6 +549,10 @@ body {
 /* Recent Events */
 .events-card {
   padding: 20px 22px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .events-header {
@@ -581,6 +587,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .event-item {
