@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>PiVision Admin Setup</title>
+  <style>
+    body { font-family: system-ui; max-width: 420px; margin: 60px auto; padding: 0 24px; background: #f5f5f5; }
+    h2 { margin-bottom: 8px; }
+    p  { color: #555; margin-bottom: 24px; }
+    input { width: 100%; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+    button { width: 100%; padding: 11px; background: #1d6ef4; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    #status { margin-top: 16px; padding: 12px; border-radius: 8px; display: none; font-size: 14px; }
+    .ok  { background: #dcfce7; color: #166534; }
+    .err { background: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body>
+  <h2>PiVision Admin Setup</h2>
+  <p>Sign in with your admin account to set <code>role: "admin"</code> in the database.</p>
+
+  <input id="email"    type="email"    placeholder="Admin email" />
+  <input id="password" type="password" placeholder="Password" />
+  <button onclick="run()">Set Admin Role</button>
+  <div id="status"></div>
+
+  <script type="module">
+    import { initializeApp }            from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js'
+    import { getAuth, signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js'
+    import { getDatabase, ref, set }    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js'
+
+    const app = initializeApp({
+      apiKey:      "AIzaSyAv8s0vErAwc3KZaRF55isbKTzhgjuwGNE",
+      authDomain:  "pivision-28ddb.firebaseapp.com",
+      databaseURL: "https://pivision-28ddb-default-rtdb.firebaseio.com",
+      projectId:   "pivision-28ddb",
+    })
+    const auth = getAuth(app)
+    const db   = getDatabase(app)
+
+    const ADMIN_UID = 'GGxaXSWuo4e9LmaIR6VSsFBU5aL2'
+
+    window.run = async () => {
+      const status = document.getElementById('status')
+      status.style.display = 'none'
+      const email    = document.getElementById('email').value
+      const password = document.getElementById('password').value
+      if (!email || !password) { show('err', 'Enter email and password.'); return }
+      try {
+        await signInWithEmailAndPassword(auth, email, password)
+        await set(ref(db, `users/${ADMIN_UID}/role`), 'admin')
+        show('ok', '✓ Done! users/' + ADMIN_UID + '/role = "admin"\n\nYou can now sign in to the app and the Admin tab will appear.')
+      } catch (e) {
+        show('err', '✗ ' + e.message)
+      }
+    }
+
+    function show(cls, msg) {
+      const el = document.getElementById('status')
+      el.className = cls
+      el.style.display = 'block'
+      el.textContent = msg
+    }
+  </script>
+</body>
+</html>
