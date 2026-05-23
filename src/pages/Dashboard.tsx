@@ -7,7 +7,7 @@ import RecentEvents from '../components/RecentEvents'
 import RecentViolations from '../components/RecentViolations'
 import StatusBar from '../components/StatusBar'
 import { useFirebaseValue } from '../hooks/useFirebaseData'
-import { DBStats, DBSeatbeltStats, DBCamera, DBEvent, DBViolationEvent } from '../types'
+import { DBStats, DBSeatbeltStats, DBCamera, DBEvent, DBVehicleEvent } from '../types'
 import { type Page } from '../App'
 import { useAuth } from '../context/AuthContext'
 
@@ -110,17 +110,18 @@ function PeopleCounterDashboard({ onNavigate }: { onNavigate: (page: Page) => vo
 
 function SeatbeltDashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const { devicePath } = useAuth()
-  const { data: stats, loading: statsLoading } = useFirebaseValue<DBSeatbeltStats>(devicePath('stats'), { violationCount: 0, totalVehicles: 0, lastEvent: '' })
-  const { data: camera }                       = useFirebaseValue<DBCamera>(devicePath('camera'), { piConnected: false, status: 'Offline', fps: 0, resolution: '' })
-  const { data: eventsRaw, loading: eventsLoading } = useFirebaseValue<Record<string, DBViolationEvent>>(devicePath('events'), {} as Record<string, DBViolationEvent>)
+  const { data: stats, loading: statsLoading } = useFirebaseValue<DBSeatbeltStats>(
+    devicePath('stats'),
+    { totalVehicles: 0, compliantVehicles: 0, distractedVehicles: 0, lastEvent: '' }
+  )
+  const { data: camera }     = useFirebaseValue<DBCamera>(devicePath('camera'), { piConnected: false, status: 'Offline', fps: 0, resolution: '' })
+  const { data: eventsRaw, loading: eventsLoading } = useFirebaseValue<Record<string, DBVehicleEvent>>(devicePath('events'), {} as Record<string, DBVehicleEvent>)
 
-  const violationCount = camera?.piConnected ? (stats?.violationCount ?? 0) : 0
-  const totalVehicles  = stats?.totalVehicles ?? 0
-  const complianceRate = totalVehicles > 0
-    ? Math.round(((totalVehicles - violationCount) / totalVehicles) * 100)
-    : null
+  const totalVehicles     = stats?.totalVehicles ?? 0
+  const compliantVehicles = stats?.compliantVehicles ?? 0
+  const complianceRate    = totalVehicles > 0 ? Math.round((compliantVehicles / totalVehicles) * 100) : null
 
-  const violations: DBViolationEvent[] = Object.values(eventsRaw)
+  const recentVehicles: DBVehicleEvent[] = Object.values(eventsRaw)
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 6)
 
@@ -130,22 +131,22 @@ function SeatbeltDashboard({ onNavigate }: { onNavigate: (page: Page) => void })
         <CameraFeed />
         <div className="right-panel">
           <StatCard
-            label="Violations Today"
-            value={violationCount.toLocaleString()}
-            sub="unbelted occupants detected"
-            icon={<CarIcon color="#ef4444" />}
-            iconBg="rgba(239,68,68,0.12)"
+            label="Vehicles Logged"
+            value={totalVehicles.toLocaleString()}
+            sub="total passes recorded"
+            icon={<CarIcon color="#1d6ef4" />}
+            iconBg="rgba(29,110,244,0.12)"
             loading={statsLoading}
           />
           <StatCard
-            label="Compliance Rate"
+            label="Seatbelt Compliance"
             value={complianceRate !== null ? `${complianceRate}%` : '—'}
-            sub={totalVehicles > 0 ? `${totalVehicles} vehicles observed` : 'no vehicles yet'}
+            sub={totalVehicles > 0 ? `${compliantVehicles} of ${totalVehicles} fully belted` : 'no vehicles yet'}
             icon={<ShieldIcon color="#22c55e" />}
             iconBg="rgba(34,197,94,0.12)"
             loading={statsLoading}
           />
-          <RecentViolations events={violations} loading={eventsLoading} onSeeAll={() => onNavigate('Analytics')} />
+          <RecentViolations events={recentVehicles} loading={eventsLoading} onSeeAll={() => onNavigate('Analytics')} />
         </div>
       </div>
       <StatusBar camera={camera} />

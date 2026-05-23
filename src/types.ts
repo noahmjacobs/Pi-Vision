@@ -6,8 +6,9 @@ export interface DBStats {
 }
 
 export interface DBSeatbeltStats {
-  violationCount: number
   totalVehicles: number
+  compliantVehicles: number
+  distractedVehicles: number
   lastEvent: string
 }
 
@@ -19,14 +20,16 @@ export interface DBEvent {
   sublabel: string
 }
 
-export interface DBViolationEvent {
+// One record per vehicle pass — the core data unit for seatbelt mode
+export interface DBVehicleEvent {
   id: string
   timestamp: number
-  type: 'violation'
-  vehicleType: 'car' | 'truck' | 'van' | 'motorcycle'
-  unbelted: number
-  label: string
-  sublabel: string
+  type: 'vehicle'
+  vehicleType: 'car' | 'truck' | 'van' | 'suv'
+  occupants: 1 | 2
+  // who is wearing a seatbelt (not who is violating)
+  seatbelts: 'both' | 'driver' | 'passenger' | 'none'
+  driverDistracted: boolean
 }
 
 export interface DBCamera {
