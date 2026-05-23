@@ -6,6 +6,16 @@ import { DBEvent, DBVehicleEvent } from '../types'
 
 const localDate = (ts: number) => new Date(ts).toLocaleDateString('en-CA')
 
+function downloadCSV(filename: string, rows: string[][], headers: string[]) {
+  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`
+  const lines = [headers.map(escape).join(','), ...rows.map(r => r.map(escape).join(','))]
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+  const url  = URL.createObjectURL(blob)
+  const a    = Object.assign(document.createElement('a'), { href: url, download: filename })
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export const PALETTE = [
   '#1d6ef4', '#a855f7', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16',
 ]
@@ -157,6 +167,15 @@ function PeopleCounterAnalytics() {
     return `${disp}${ampm}`
   }
 
+  function exportCSV() {
+    const rows = tableEvents.map(ev => [
+      new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      ev.label,
+      ev.sublabel,
+    ])
+    downloadCSV(`people-counter-${selectedDate}.csv`, rows, ['Time', 'Label', 'Details'])
+  }
+
   return (
     <div className="analytics-page">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -166,15 +185,20 @@ function PeopleCounterAnalytics() {
             People crossings · all cameras{devices.length > 1 ? ` (${devices.length})` : ''}
           </div>
         </div>
-        <input
-          type="date" value={selectedDate} max={todayStr}
-          onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
-          style={{
-            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
-            padding: '6px 12px', cursor: 'pointer',
-          }}
-        />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={exportCSV}
+            disabled={tableEvents.length === 0}
+            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(29,110,244,0.3)', background: 'rgba(29,110,244,0.08)', color: 'var(--accent-blue)', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font)', cursor: tableEvents.length === 0 ? 'not-allowed' : 'pointer', opacity: tableEvents.length === 0 ? 0.5 : 1 }}
+          >
+            ↓ Export CSV
+          </button>
+          <input
+            type="date" value={selectedDate} max={todayStr}
+            onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
+            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: '6px 12px', cursor: 'pointer' }}
+          />
+        </div>
       </div>
 
       {/* 7-day overview */}
@@ -506,6 +530,17 @@ function SeatbeltAnalytics() {
     ? Math.round((complianceStats.distracted / complianceStats.total) * 100)
     : null
 
+  function exportCSV() {
+    const rows = filteredEvents.map(ev => [
+      new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      VEHICLE_LABELS[ev.vehicleType] ?? ev.vehicleType,
+      String(ev.occupants),
+      seatbeltLabel(ev),
+      ev.driverDistracted ? 'Yes' : 'No',
+    ])
+    downloadCSV(`traffic-log-${selectedDate}.csv`, rows, ['Time', 'Vehicle', 'Occupants', 'Seatbelts', 'Distracted'])
+  }
+
   return (
     <div className="analytics-page">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -513,9 +548,18 @@ function SeatbeltAnalytics() {
           <div className="page-title">Analytics</div>
           <div className="page-subtitle">Traffic log · all cameras</div>
         </div>
-        <input type="date" value={selectedDate} max={todayStr}
-          onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
-          style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: '6px 12px', cursor: 'pointer' }} />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={exportCSV}
+            disabled={filteredEvents.length === 0}
+            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(29,110,244,0.3)', background: 'rgba(29,110,244,0.08)', color: 'var(--accent-blue)', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font)', cursor: filteredEvents.length === 0 ? 'not-allowed' : 'pointer', opacity: filteredEvents.length === 0 ? 0.5 : 1 }}
+          >
+            ↓ Export CSV
+          </button>
+          <input type="date" value={selectedDate} max={todayStr}
+            onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
+            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: '6px 12px', cursor: 'pointer' }} />
+        </div>
       </div>
 
       {/* 7-day bar — vehicles per day */}
