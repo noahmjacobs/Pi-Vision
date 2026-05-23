@@ -119,7 +119,7 @@ SERVICE_FILE="/etc/systemd/system/pivision.service"
 
 cat > /tmp/pivision.service <<SERVICE
 [Unit]
-Description=PiVision Camera — Motion Detection + Firebase
+Description=PiVision Camera — YOLOv8 People Counter
 After=network-online.target
 Wants=network-online.target
 
@@ -130,7 +130,13 @@ WorkingDirectory=$SCRIPT_DIR
 ExecStart=$RUNNER
 Restart=on-failure
 RestartSec=5
+# Set COMPANY_ID and DEVICE_ID to match what you created in the Admin panel.
+# COMPANY_ID=default / DEVICE_ID=cam1 is the test namespace — change these for production.
+# If running two cameras on this Pi, create a second service file with DEVICE_ID=cam2 and STREAM_PORT=8081.
+Environment=COMPANY_ID=default
+Environment=DEVICE_ID=cam1
 Environment=CAMERA_INDEX=0
+Environment=STREAM_PORT=8080
 
 [Install]
 WantedBy=multi-user.target
@@ -158,14 +164,20 @@ echo "  Next steps:"
 echo ""
 echo "  1. Add your Firebase service account file:"
 echo "       pi/serviceAccount.json"
-echo "     Generate it at:"
-echo "       https://console.firebase.google.com/project/pivision-28ddb/settings/serviceaccounts"
+echo "     Generate at: Firebase Console → Project Settings → Service Accounts"
 echo "     → 'Generate new private key' → save as pi/serviceAccount.json"
 echo ""
-echo "  2. Run the camera script:"
-echo "       ./run.sh"
+echo "  2. Edit the systemd service to set your company and camera:"
+echo "       sudo nano /etc/systemd/system/pivision.service"
+echo "     Set: Environment=COMPANY_ID=your-company-id"
+echo "          Environment=DEVICE_ID=cam1"
+echo "     (These must match what you created in the Admin panel)"
+echo "     Then: sudo systemctl daemon-reload"
 echo ""
-echo "  Or run directly:"
-echo "       source $VENV_DIR/bin/activate"
-echo "       python3 camera.py"
+echo "  3. Run the camera script:"
+echo "       COMPANY_ID=your-company-id DEVICE_ID=cam1 ./run.sh"
+echo ""
+echo "  Or enable auto-start on boot:"
+echo "       sudo systemctl enable pivision && sudo systemctl start pivision"
+echo "       sudo journalctl -u pivision -f   # view logs"
 echo "────────────────────────────────────────────────────────────"

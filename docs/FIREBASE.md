@@ -3,48 +3,48 @@
 Project: `pivision-28ddb`
 Database URL: `https://pivision-28ddb-default-rtdb.firebaseio.com`
 
-## Database paths
+## Overview
 
-### `/stats`
-Written by: `camera.py` (motion events, last event label)
-Read by: `Dashboard` → `StatCard`
+All data is namespaced by company and device. There is no global state — each company is fully isolated.
 
-```json
-{
-  "motionEvents": 613,
-  "objectsDetected": 1832,
-  "uptime": "14h 32m",
-  "lastEvent": "Motion · 16:15"
-}
+```
+companies/
+  {companyId}/
+    name                         → company display name
+    devices/
+      {deviceId}/
+        camera/                  → live feed status + snapshot
+        stats/                   → current people count + last event label
+        counts/                  → daily people totals keyed by date
+        events/                  → log of individual person crossings
+        config/                  → tuning params (line pos, confidence, direction)
+users/
+  {uid}/
+    role                         → "admin" | "user"
+    companyId                    → company the user belongs to (user role only)
+    email                        → stored for reference
 ```
 
-`objectsDetected` and `uptime` are currently placeholder values — not yet updated by the Pi script.
+The `COMPANY_ID` and `DEVICE_ID` environment variables in `camera.py` map directly to
+`companies/{COMPANY_ID}/devices/{DEVICE_ID}/`.
+
+The default values (`COMPANY_ID=default`, `DEVICE_ID=cam1`) are a test/scratch namespace
+with no user account attached. Safe to delete from Firebase when done testing.
 
 ---
 
-### `/events/{id}`
-Written by: `camera.py` → `push_event()`
-Read by: `Dashboard` → `RecentEvents`
-
-Each event is a random 8-char hex ID:
+## companies/{companyId}/name
 
 ```json
-{
-  "id": "a3f9c12b",
-  "timestamp": 1714000000000,
-  "type": "motion",
-  "label": "Motion detected",
-  "sublabel": "USB webcam · Pi"
-}
+"Kahuku Apps LLC"
 ```
-
-`type` is `"motion"` or `"object"`. The dashboard derives dot color from `type` and `label`.
 
 ---
 
-### `/camera`
-Written by: `camera.py` → `set_camera_status()` and `snapshot_worker`
-Read by: `Dashboard` → `CameraFeed`, `StatusBar`
+## companies/{companyId}/devices/{deviceId}/camera
+
+Written by `camera.py` → `set_camera_status()` and the snapshot worker.
+Read by `Dashboard` → `CameraFeed`.
 
 ```json
 {
@@ -52,83 +52,154 @@ Read by: `Dashboard` → `CameraFeed`, `StatusBar`
   "status": "Connected",
   "fps": 1,
   "resolution": "720p",
-  "snapshot": "<base64-encoded JPEG string>"
+  "sessionStart": 1714000000000,
+  "snapshot": "<base64-encoded 640×360 JPEG>"
 }
 ```
 
-`snapshot` is a 640×360 JPEG encoded as base64. It updates every second while the Pi is running. The dashboard reads it and renders it as `<img src="data:image/jpeg;base64,..." />`.
-
-When the Pi shuts down, `set_camera_status(False)` sets `piConnected: false` and clears `snapshot`.
+`snapshot` updates every second while the Pi is running.
+On shutdown, `piConnected` → `false`, `snapshot` → `""`, `sessionStart` → `0`.
 
 ---
 
-### `/claude`
-Written by: `camera.py` → `update_claude()`
-Read by: `Dashboard` → `ClaudePanel`
+## companies/{companyId}/devices/{deviceId}/stats
+
+Written by `camera.py` on each person crossing.
+Read by `Dashboard` → `StatCard`.
 
 ```json
 {
-  "lastAnalysis": "A person is seated in a chair indoors...",
-  "lastUpdated": 1714000000000
+  "peopleCount": 42,
+  "lastEvent": "Person · 14:23"
 }
 ```
 
-Updated every `ANALYSIS_INTERVAL` seconds (default: 60s) by the GPT-4o vision worker.
+`peopleCount` is a running total for the current session (resets on Pi restart).
 
 ---
 
-## TypeScript types
+## companies/{companyId}/devices/{deviceId}/counts/{YYYY-MM-DD}
 
-Defined in `src/types.ts`:
+Written by `camera.py` → `increment_daily_count()`.
+Read by `Analytics` page for the bar chart and donut chart.
 
-```typescript
-interface DBStats {
-  motionEvents: number
-  objectsDetected: number
-  uptime: string
-  lastEvent: string
-}
-
-interface DBEvent {
-  id: string
-  timestamp: number       // Unix ms
-  type: 'motion' | 'object'
-  label: string
-  sublabel: string
-}
-
-interface DBCamera {
-  status: string
-  fps: number
-  resolution: string
-  piConnected: boolean
-}
-
-interface DBClaude {
-  lastAnalysis: string
-  lastUpdated: number     // Unix ms
+```json
+{
+  "total": 187
 }
 ```
 
-## Security rules
+Date key format: `"2025-05-23"`
 
-The database is currently open for read/write (default). Before sharing the dashboard publicly, add rules:
+---
+
+## companies/{companyId}/devices/{deviceId}/events/{id}
+
+Written by `camera.py` → `push_event()` on each person crossing.
+Read by `Dashboard` → recent events list.
+
+Each event has a random 8-char hex ID:
+
+```json
+{
+  "id": "a3f9c12b",
+  "timestamp": 1714000000000,
+  "type": "person",
+  "label": "Person counted",
+  "sublabel": "Crossed line · 14:23"
+}
+```
+
+---
+
+## companies/{companyId}/devices/{deviceId}/config
+
+Read by `camera.py` on startup to override script defaults.
+Written by `Settings` page.
+
+```json
+{
+  "linePosition": 50,
+  "confidence": 45,
+  "countDirection": "down"
+}
+```
+
+| Field | Unit | Default |
+|---|---|---|
+| `linePosition` | percent (0–100) of frame height | `50` |
+| `confidence` | percent (0–100) | `45` |
+| `countDirection` | `"down"` \| `"up"` \| `"left"` \| `"right"` \| `"both"` | `"down"` |
+
+---
+
+## companies/{companyId}/devices/{deviceId}/name and color
+
+Set when a camera is created via the Admin panel or Settings page.
+
+```json
+{
+  "name": "Front Door",
+  "color": "#1d6ef4"
+}
+```
+
+`color` is used in the Analytics donut chart and the camera color picker in Settings.
+If not set, the device falls back to a color from the built-in palette based on index.
+
+---
+
+## users/{uid}
+
+Written by the Admin panel when creating a company user.
+Read by `AuthContext` on login to determine role and company.
+
+**Regular user:**
+```json
+{
+  "role": "user",
+  "companyId": "kahuku-apps-llc",
+  "email": "user@kahuku.com"
+}
+```
+
+**Admin:**
+```json
+{
+  "role": "admin"
+}
+```
+
+To make a user admin, write their Firebase Auth UID to `users/{uid}` with `role: "admin"` directly
+in the Firebase Console. No `companyId` is needed for admin.
+
+---
+
+## Security rules
 
 ```json
 {
   "rules": {
-    ".read": true,
+    ".read": false,
     ".write": false,
-    "camera": {
-      "snapshot": {
-        ".write": true
+    "users": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (auth.uid === $uid && !data.exists()))"
       }
     },
-    "stats": { ".write": true },
-    "events": { ".write": true },
-    "claude": { ".write": true }
+    "companies": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$companyId": {
+        ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('companyId').val() === $companyId)",
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('companyId').val() === $companyId)"
+      }
+    }
   }
 }
 ```
 
-This allows the Pi (unauthenticated) to write while preventing browser clients from modifying data.
+Key points:
+- The `companies` root-level `.read` for admin is required so `allCompanies` can list all companies
+- The per-`$companyId` `.read` lets regular users read only their own company
+- `camera.py` uses the Firebase **Admin SDK** (service account) and bypasses these rules entirely
