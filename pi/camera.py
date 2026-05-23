@@ -6,13 +6,11 @@ PiVision — Raspberry Pi camera script (Phase 2 — People Counter)
 • YOLOv8-nano person detection  → tracks individuals crossing a line
 • People count                  → Firebase /stats/peopleCount
 • Realtime DB snapshots         → 1 frame/second (base64 JPEG)
-• GPT-4 Vision analysis         → Firebase /claude/lastAnalysis
 • MJPEG stream (LAN only)       → http://<local-ip>:8080/stream
 
 Requirements:
   1. Place your Firebase service account JSON at pi/serviceAccount.json
-  2. Set environment variable: export OPENAI_API_KEY="sk-..."
-  3. Run: python3 camera.py
+  2. Run: python3 camera.py
 
 Optional env vars:
   CAMERA_INDEX        USB camera device index (default: 0)
@@ -20,7 +18,6 @@ Optional env vars:
   YOLO_CONFIDENCE     Detection confidence threshold 0–1 (default: 0.45)
   YOLO_SKIP           Run YOLO every Nth frame (default: 2 — helps on slower hardware)
   COUNT_LINE_POS      Counting line position as fraction of frame height (default: 0.5)
-  ANALYSIS_INTERVAL   Seconds between GPT-4 Vision calls (default: 60)
 """
 
 import os
@@ -38,7 +35,6 @@ from datetime import datetime
 import cv2
 import firebase_admin
 from firebase_admin import credentials, db as rtdb
-from openai import OpenAI
 from ultralytics import YOLO
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -46,10 +42,8 @@ FIREBASE_DB_URL  = "https://pivision-28ddb-default-rtdb.firebaseio.com"
 FIREBASE_PROJECT = "pivision-28ddb"
 SERVICE_ACCOUNT  = os.path.join(os.path.dirname(__file__), "serviceAccount.json")
 
-OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
 CAMERA_INDEX      = int(os.environ.get("CAMERA_INDEX", "0"))
 STREAM_PORT       = int(os.environ.get("STREAM_PORT", "8080"))
-ANALYSIS_INTERVAL = int(os.environ.get("ANALYSIS_INTERVAL", "60"))
 
 YOLO_MODEL      = os.environ.get("YOLO_MODEL", "yolov8n.pt")
 YOLO_CONFIDENCE = float(os.environ.get("YOLO_CONFIDENCE", "0.45"))
@@ -291,13 +285,6 @@ def load_firebase_config() -> dict:
         return {}
 
 
-def update_claude(text: str) -> None:
-    rtdb.reference("claude").set({
-        "lastAnalysis": text,
-        "lastUpdated":  int(time.time() * 1000),
-    })
-
-
 def set_camera_status(connected: bool) -> None:
     update: dict = {
         "piConnected": connected,
@@ -312,40 +299,11 @@ def set_camera_status(connected: bool) -> None:
     rtdb.reference("camera").update(update)
     if not connected:
         rtdb.reference("camera/snapshot").set("")
-
-
-# ── GPT-4 Vision ───────────────────────────────────────────────────────────────
-VISION_PROMPT = (
-    "You are a concise security camera AI assistant. "
-    "In 1–2 sentences describe exactly what you see in this camera frame: "
-    "any people, objects, activity, or unusual details. "
-    "If nothing notable is happening, say so briefly. Be direct and factual."
-)
-
-
-def analyse_frame_with_gpt4(frame, client: OpenAI) -> str | None:
-    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
-    b64 = base64.b64encode(buf).decode("utf-8")
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4o",
-            max_tokens=150,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text",      "text": VISION_PROMPT},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                ],
-            }],
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as exc:
-        log.warning("GPT-4 Vision error: %s", exc)
-        return None
+        rtdb.reference("stats/peopleCount").set(0)
 
 
 # ── Camera + people counting loop ─────────────────────────────────────────────
-def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> None:
+def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer) -> None:
     log.info(
         "Loading YOLO model: %s  (confidence=%.2f  skip=%d  line=%.0f%%)",
         YOLO_MODEL, YOLO_CONFIDENCE, YOLO_SKIP, COUNT_LINE_POS * 100,
@@ -355,10 +313,9 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
     axis      = "x" if COUNT_DIRECTION in ("left", "right") else "y"
     line_pos  = int((FRAME_WIDTH if axis == "x" else FRAME_HEIGHT) * COUNT_LINE_POS)
 
-    people_count     = 0
-    last_analysis_at = 0.0
-    latest_frame     = None
-    frame_lock       = threading.Lock()
+    people_count = 0
+    latest_frame = None
+    frame_lock   = threading.Lock()
 
     log.info(
         "People counter ready — %s line at %d px  direction=%s",
@@ -389,32 +346,6 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
                 log.warning("Snapshot write failed: %s", exc)
 
     threading.Thread(target=snapshot_worker, daemon=True).start()
-
-    # ── GPT-4 Vision worker ────────────────────────────────────────────────────
-    def vision_worker() -> None:
-        nonlocal last_analysis_at
-        log.info("Vision worker started — first analysis in %ds", ANALYSIS_INTERVAL)
-        while True:
-            time.sleep(5)
-            if openai_client is None:
-                continue
-            if time.time() - last_analysis_at < ANALYSIS_INTERVAL:
-                continue
-            with frame_lock:
-                snapshot = latest_frame.copy() if latest_frame is not None else None
-            if snapshot is None:
-                continue
-            log.info("Sending frame to GPT-4 Vision…")
-            result = analyse_frame_with_gpt4(snapshot, openai_client)
-            if result:
-                log.info("Analysis → %s", result)
-                try:
-                    update_claude(result)
-                except Exception as exc:
-                    log.warning("Firebase claude update failed: %s", exc)
-            last_analysis_at = time.time()
-
-    threading.Thread(target=vision_worker, daemon=True).start()
 
     # ── Main capture + detection loop ─────────────────────────────────────────
     _encode_params  = [cv2.IMWRITE_JPEG_QUALITY, 70]
@@ -470,12 +401,6 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main() -> None:
-    if not OPENAI_API_KEY:
-        log.warning(
-            "OPENAI_API_KEY not set — GPT-4 Vision disabled. "
-            "Set with:  export OPENAI_API_KEY='sk-...'"
-        )
-
     init_firebase()
 
     # Load config from Firebase and override defaults if present
@@ -510,12 +435,10 @@ def main() -> None:
         )
         sys.exit(1)
 
-    openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-
     try:
         set_camera_status(True)
         log.info("PiVision is running — press Ctrl+C to stop")
-        run_camera(cap, frame_buf, openai_client)
+        run_camera(cap, frame_buf)
     except KeyboardInterrupt:
         log.info("Shutting down…")
     finally:

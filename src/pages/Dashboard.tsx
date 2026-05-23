@@ -66,7 +66,7 @@ export default function Dashboard() {
         <div className="right-panel">
           <StatCard
             label="People Counted"
-            value={(stats?.peopleCount ?? 0).toLocaleString()}
+            value={(camera?.piConnected ? (stats?.peopleCount ?? 0) : 0).toLocaleString()}
             sub="this session"
             icon={<PeopleIcon color="#1d6ef4" />}
             iconBg="rgba(29,110,244,0.12)"

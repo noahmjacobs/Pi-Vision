@@ -42,12 +42,6 @@ export default function StatusBar({ camera }: StatusBarProps) {
         <span className="status-value">Firebase · Synced</span>
       </div>
 
-      <div className="status-divider" />
-
-      <div className="status-item" data-tooltip="AI model used for periodic scene analysis">
-        <span className="status-label">Model</span>
-        <span className="status-value">GPT-4o</span>
-      </div>
     </div>
   )
 }

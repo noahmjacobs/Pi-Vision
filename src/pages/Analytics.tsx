@@ -46,6 +46,8 @@ export default function Analytics() {
 
   const BAR_HEIGHT = 80
 
+  const [hoveredHour, setHoveredHour] = useState<number | null>(null)
+
   return (
     <div className="analytics-page">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -108,9 +110,31 @@ export default function Analytics() {
                 alignItems: 'center',
                 justifyContent: 'flex-end',
                 height: '100%',
+                position: 'relative',
+                cursor: v > 0 ? 'pointer' : 'default',
               }}
-              title={`${i}:00 — ${v} crossings`}
+              onMouseEnter={() => setHoveredHour(i)}
+              onMouseLeave={() => setHoveredHour(null)}
             >
+              {hoveredHour === i && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: `calc(${(v / maxHourly) * BAR_HEIGHT}px + 6px)`,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(15,20,30,0.92)',
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: '3px 7px',
+                  borderRadius: 5,
+                  whiteSpace: 'nowrap',
+                  pointerEvents: 'none',
+                  zIndex: 10,
+                }}>
+                  {v}
+                </div>
+              )}
               <div
                 style={{
                   width: '100%',
@@ -118,9 +142,11 @@ export default function Analytics() {
                   minHeight: v > 0 ? 3 : 0,
                   background: i === new Date().getHours() && selectedDate === todayStr
                     ? '#1d6ef4'
+                    : hoveredHour === i
+                    ? 'rgba(29,110,244,0.65)'
                     : 'rgba(29,110,244,0.35)',
                   borderRadius: '3px 3px 0 0',
-                  transition: 'height 0.2s',
+                  transition: 'height 0.2s, background 0.15s',
                 }}
               />
             </div>

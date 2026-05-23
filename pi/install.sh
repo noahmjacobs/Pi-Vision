@@ -66,7 +66,6 @@ info "Installing Python packages…"
 pip install \
     opencv-python-headless \
     firebase-admin \
-    openai \
     ultralytics \
     --quiet
 
@@ -131,11 +130,7 @@ WorkingDirectory=$SCRIPT_DIR
 ExecStart=$RUNNER
 Restart=on-failure
 RestartSec=5
-# Set your OpenAI key here (or use an EnvironmentFile= instead)
-Environment=OPENAI_API_KEY=REPLACE_WITH_YOUR_KEY
 Environment=CAMERA_INDEX=0
-Environment=MOTION_THRESHOLD=3000
-Environment=ANALYSIS_INTERVAL=60
 
 [Install]
 WantedBy=multi-user.target
@@ -144,7 +139,6 @@ SERVICE
 if sudo cp /tmp/pivision.service "$SERVICE_FILE" 2>/dev/null; then
     sudo systemctl daemon-reload
     info "systemd service installed at $SERVICE_FILE"
-    info "  → Edit $SERVICE_FILE to add your OPENAI_API_KEY"
     info "  → Then run:"
     info "      sudo systemctl enable pivision   # start on boot"
     info "      sudo systemctl start  pivision   # start now"
@@ -168,10 +162,7 @@ echo "     Generate it at:"
 echo "       https://console.firebase.google.com/project/pivision-28ddb/settings/serviceaccounts"
 echo "     → 'Generate new private key' → save as pi/serviceAccount.json"
 echo ""
-echo "  2. Set your OpenAI API key:"
-echo "       export OPENAI_API_KEY='sk-...'"
-echo ""
-echo "  3. Run the camera script:"
+echo "  2. Run the camera script:"
 echo "       ./run.sh"
 echo ""
 echo "  Or run directly:"
