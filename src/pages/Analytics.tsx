@@ -1,34 +1,61 @@
-import { useMemo, useState } from 'react'
-import { useFirebaseValue } from '../hooks/useFirebaseData'
+import { useMemo, useState, useEffect } from 'react'
+import { ref, onValue } from 'firebase/database'
+import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext'
 import { DBEvent } from '../types'
 
 const localDate = (ts: number) => new Date(ts).toLocaleDateString('en-CA')
 
 export default function Analytics() {
-  const { devicePath } = useAuth()
+  const { companyId, devices } = useAuth()
   const todayStr = new Date().toLocaleDateString('en-CA')
   const [selectedDate, setSelectedDate] = useState(todayStr)
   const [hoveredHour, setHoveredHour]   = useState<number | null>(null)
   const [hoveredDay, setHoveredDay]     = useState<number | null>(null)
 
-  const { data: eventsRaw } = useFirebaseValue<Record<string, DBEvent>>(
-    devicePath('events'),
-    {} as Record<string, DBEvent>,
-    { cache: false }
-  )
+  // Combined events and counts across all cameras
+  const [allEvents,       setAllEvents]       = useState<DBEvent[]>([])
+  const [combinedCounts,  setCombinedCounts]  = useState<Record<string, number>>({})
 
-  const { data: dailyTotal } = useFirebaseValue<number>(
-    devicePath(`counts/${selectedDate}/total`),
-    0,
-    { cache: false }
-  )
+  useEffect(() => {
+    if (!companyId || !devices.length) return
 
-  const { data: allCounts } = useFirebaseValue<Record<string, { total: number }>>(
-    devicePath('counts'),
-    {},
-    { cache: false }
-  )
+    const deviceEvents:  Record<string, Record<string, DBEvent>>              = {}
+    const deviceCounts:  Record<string, Record<string, { total?: number }>>   = {}
+    const unsubs: (() => void)[] = []
+
+    const recomputeEvents = () => {
+      const all = Object.values(deviceEvents).flatMap(ev => Object.values(ev))
+      setAllEvents(all)
+    }
+
+    const recomputeCounts = () => {
+      const combined: Record<string, number> = {}
+      Object.values(deviceCounts).forEach(counts => {
+        Object.entries(counts).forEach(([date, val]) => {
+          combined[date] = (combined[date] ?? 0) + (val.total ?? 0)
+        })
+      })
+      setCombinedCounts(combined)
+    }
+
+    devices.forEach(device => {
+      const evRef = ref(db, `companies/${companyId}/devices/${device.id}/events`)
+      const coRef = ref(db, `companies/${companyId}/devices/${device.id}/counts`)
+
+      unsubs.push(onValue(evRef, snap => {
+        deviceEvents[device.id] = snap.exists() ? snap.val() : {}
+        recomputeEvents()
+      }))
+
+      unsubs.push(onValue(coRef, snap => {
+        deviceCounts[device.id] = snap.exists() ? snap.val() : {}
+        recomputeCounts()
+      }))
+    })
+
+    return () => unsubs.forEach(fn => fn())
+  }, [companyId, devices.map(d => d.id).join(',')])
 
   const weekData = useMemo(() => {
     const days = []
@@ -37,33 +64,27 @@ export default function Analytics() {
       d.setDate(d.getDate() - i)
       const key   = d.toLocaleDateString('en-CA')
       const label = d.toLocaleDateString('en-US', { weekday: 'short' })
-      const entry = (allCounts as Record<string, { total?: number }>)[key]
-      days.push({ key, label, total: entry?.total ?? 0 })
+      days.push({ key, label, total: combinedCounts[key] ?? 0 })
     }
     return days
-  }, [allCounts])
+  }, [combinedCounts])
 
   const maxWeekly = Math.max(...weekData.map(d => d.total), 1)
 
   const filteredEvents = useMemo(() => {
-    return Object.values(eventsRaw)
-      .filter(ev => {
-        if (ev.type !== 'person') return false
-        return localDate(ev.timestamp) === selectedDate
-      })
+    return allEvents
+      .filter(ev => ev.type === 'person' && localDate(ev.timestamp) === selectedDate)
       .sort((a, b) => b.timestamp - a.timestamp)
-  }, [eventsRaw, selectedDate])
+  }, [allEvents, selectedDate])
 
   const hourlyData = useMemo(() => {
     const counts = Array(24).fill(0)
-    for (const ev of filteredEvents) {
-      counts[new Date(ev.timestamp).getHours()]++
-    }
+    for (const ev of filteredEvents) counts[new Date(ev.timestamp).getHours()]++
     return counts
   }, [filteredEvents])
 
   const maxHourly    = Math.max(...hourlyData, 1)
-  const displayTotal = dailyTotal > 0 ? dailyTotal : filteredEvents.length
+  const displayTotal = combinedCounts[selectedDate] ?? filteredEvents.length
   const tableEvents  = filteredEvents.slice(0, 50)
 
   const BAR_HEIGHT      = 80
@@ -74,21 +95,17 @@ export default function Analytics() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <div className="page-title">Analytics</div>
-          <div className="page-subtitle">People crossings by date</div>
+          <div className="page-subtitle">
+            People crossings · all cameras{devices.length > 1 ? ` (${devices.length})` : ''}
+          </div>
         </div>
         <input
-          type="date"
-          value={selectedDate}
-          max={todayStr}
+          type="date" value={selectedDate} max={todayStr}
           onChange={e => setSelectedDate(e.target.value)}
           style={{
-            background: 'rgba(255,255,255,0.08)',
-            border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 8,
-            color: 'var(--text-primary)',
-            fontSize: 14,
-            padding: '6px 12px',
-            cursor: 'pointer',
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
+            padding: '6px 12px', cursor: 'pointer',
           }}
         />
       </div>
@@ -107,36 +124,20 @@ export default function Analytics() {
             >
               {hoveredDay === i && day.total > 0 && (
                 <div style={{
-                  position: 'absolute',
-                  bottom: `calc(${(day.total / maxWeekly) * WEEK_BAR_HEIGHT}px + 6px)`,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  background: 'rgba(15,20,30,0.92)',
-                  color: '#fff',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  padding: '3px 7px',
-                  borderRadius: 5,
-                  whiteSpace: 'nowrap',
-                  pointerEvents: 'none',
-                  zIndex: 10,
-                }}>
-                  {day.total}
-                </div>
+                  position: 'absolute', bottom: `calc(${(day.total / maxWeekly) * WEEK_BAR_HEIGHT}px + 6px)`,
+                  left: '50%', transform: 'translateX(-50%)',
+                  background: 'rgba(15,20,30,0.92)', color: '#fff',
+                  fontSize: 12, fontWeight: 700, padding: '3px 7px', borderRadius: 5,
+                  whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10,
+                }}>{day.total}</div>
               )}
               <div style={{
-                width: '100%',
-                height: `${(day.total / maxWeekly) * WEEK_BAR_HEIGHT}px`,
+                width: '100%', height: `${(day.total / maxWeekly) * WEEK_BAR_HEIGHT}px`,
                 minHeight: day.total > 0 ? 3 : 0,
-                background: day.key === selectedDate
-                  ? '#1d6ef4'
-                  : day.key === todayStr
-                  ? 'rgba(29,110,244,0.7)'
-                  : hoveredDay === i
-                  ? 'rgba(29,110,244,0.55)'
-                  : 'rgba(29,110,244,0.25)',
-                borderRadius: '3px 3px 0 0',
-                transition: 'height 0.2s, background 0.15s',
+                background: day.key === selectedDate ? '#1d6ef4'
+                  : day.key === todayStr ? 'rgba(29,110,244,0.7)'
+                  : hoveredDay === i ? 'rgba(29,110,244,0.55)' : 'rgba(29,110,244,0.25)',
+                borderRadius: '3px 3px 0 0', transition: 'height 0.2s, background 0.15s',
               }} />
             </div>
           ))}
@@ -159,7 +160,7 @@ export default function Analytics() {
           {displayTotal.toLocaleString()}
         </div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6 }}>
-          people counted this day
+          people counted across all cameras
         </div>
       </div>
 
@@ -176,34 +177,18 @@ export default function Analytics() {
             >
               {hoveredHour === i && (
                 <div style={{
-                  position: 'absolute',
-                  bottom: `calc(${(v / maxHourly) * BAR_HEIGHT}px + 6px)`,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  background: 'rgba(15,20,30,0.92)',
-                  color: '#fff',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  padding: '3px 7px',
-                  borderRadius: 5,
-                  whiteSpace: 'nowrap',
-                  pointerEvents: 'none',
-                  zIndex: 10,
-                }}>
-                  {v}
-                </div>
+                  position: 'absolute', bottom: `calc(${(v / maxHourly) * BAR_HEIGHT}px + 6px)`,
+                  left: '50%', transform: 'translateX(-50%)',
+                  background: 'rgba(15,20,30,0.92)', color: '#fff',
+                  fontSize: 12, fontWeight: 700, padding: '3px 7px', borderRadius: 5,
+                  whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10,
+                }}>{v}</div>
               )}
               <div style={{
-                width: '100%',
-                height: `${(v / maxHourly) * BAR_HEIGHT}px`,
-                minHeight: v > 0 ? 3 : 0,
-                background: i === new Date().getHours() && selectedDate === todayStr
-                  ? '#1d6ef4'
-                  : hoveredHour === i
-                  ? 'rgba(29,110,244,0.65)'
-                  : 'rgba(29,110,244,0.35)',
-                borderRadius: '3px 3px 0 0',
-                transition: 'height 0.2s, background 0.15s',
+                width: '100%', height: `${(v / maxHourly) * BAR_HEIGHT}px`, minHeight: v > 0 ? 3 : 0,
+                background: i === new Date().getHours() && selectedDate === todayStr ? '#1d6ef4'
+                  : hoveredHour === i ? 'rgba(29,110,244,0.65)' : 'rgba(29,110,244,0.35)',
+                borderRadius: '3px 3px 0 0', transition: 'height 0.2s, background 0.15s',
               }} />
             </div>
           ))}
@@ -215,7 +200,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Event log table */}
+      {/* Event log */}
       <div className="glass-card analytics-table-card">
         <div className="table-title">
           Event Log — {tableEvents.length} events

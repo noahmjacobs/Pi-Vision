@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ref, set } from 'firebase/database'
+import { ref, set, remove } from 'firebase/database'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext'
 
@@ -13,8 +13,15 @@ function saveLocal(cfg: object) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(cfg)) } catch {}
 }
 
+const inputStyle: React.CSSProperties = {
+  width: '100%', padding: '9px 12px', borderRadius: 8,
+  border: '1px solid rgba(0,0,0,0.1)', background: 'rgba(0,0,0,0.04)',
+  color: 'var(--text-primary)', fontSize: 14, fontFamily: 'var(--font)',
+  boxSizing: 'border-box',
+}
+
 export default function Settings() {
-  const { devicePath } = useAuth()
+  const { devicePath, companyId, devices } = useAuth()
   const saved = loadLocal()
 
   const [linePosition,   setLinePosition]   = useState<number>(saved.linePosition   ?? 50)
@@ -22,6 +29,11 @@ export default function Settings() {
   const [confidence,     setConfidence]     = useState<number>(saved.confidence     ?? 45)
   const [cameraIndex,    setCameraIndex]    = useState<number>(saved.cameraIndex    ?? 0)
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  const [newCamName, setNewCamName] = useState('')
+  const [newCamId,   setNewCamId]   = useState('')
+  const [camSaving,  setCamSaving]  = useState(false)
+  const [camErr,     setCamErr]     = useState('')
 
   async function handleSave() {
     setStatus('saving')
@@ -35,11 +47,33 @@ export default function Settings() {
         set(ref(db, devicePath('config/cameraIndex')),    cameraIndex),
       ])
       setStatus('saved')
-    } catch (err) {
-      console.error('Firebase config write failed:', err)
+    } catch {
       setStatus('error')
     }
     setTimeout(() => setStatus('idle'), 2500)
+  }
+
+  async function addCamera() {
+    setCamErr('')
+    if (!newCamName.trim() || !newCamId.trim()) { setCamErr('Both fields are required.'); return }
+    const cleanId = newCamId.trim().toLowerCase().replace(/\s+/g, '-')
+    if (devices.find(d => d.id === cleanId)) { setCamErr('Camera ID already exists.'); return }
+    setCamSaving(true)
+    try {
+      await set(ref(db, `companies/${companyId}/devices/${cleanId}`), { name: newCamName.trim() })
+      setNewCamName('')
+      setNewCamId('')
+    } catch {
+      setCamErr('Failed to add camera.')
+    } finally {
+      setCamSaving(false)
+    }
+  }
+
+  async function removeCamera(id: string) {
+    if (devices.length <= 1) return
+    if (!confirm('Remove this camera? This cannot be undone.')) return
+    await remove(ref(db, `companies/${companyId}/devices/${id}`))
   }
 
   return (
@@ -53,22 +87,73 @@ export default function Settings() {
           onClick={handleSave}
           disabled={status === 'saving'}
           style={{
-            padding: '9px 22px',
-            borderRadius: 10,
-            border: 'none',
+            padding: '9px 22px', borderRadius: 10, border: 'none',
             background: status === 'saved' ? '#22c55e' : status === 'error' ? '#ef4444' : 'var(--accent-blue)',
-            color: '#fff',
-            fontSize: 14,
-            fontWeight: 600,
-            fontFamily: 'var(--font)',
+            color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: 'var(--font)',
             cursor: status === 'saving' ? 'not-allowed' : 'pointer',
-            opacity: status === 'saving' ? 0.7 : 1,
-            transition: 'background 0.2s',
-            minWidth: 90,
+            opacity: status === 'saving' ? 0.7 : 1, transition: 'background 0.2s', minWidth: 90,
           }}
         >
           {status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved ✓' : status === 'error' ? 'Failed ✗' : 'Save'}
         </button>
+      </div>
+
+      {/* Cameras */}
+      <div className="glass-card settings-section">
+        <div className="settings-section-title">Cameras</div>
+
+        {devices.map(device => (
+          <div key={device.id} className="settings-row">
+            <div>
+              <div className="settings-row-label">{device.name}</div>
+              <div className="settings-row-sub">ID: {device.id}</div>
+            </div>
+            {devices.length > 1 && (
+              <button
+                onClick={() => removeCamera(device.id)}
+                style={{
+                  background: 'none', border: '1px solid rgba(239,68,68,0.3)',
+                  borderRadius: 8, padding: '5px 12px', fontSize: 12,
+                  color: '#ef4444', cursor: 'pointer', fontFamily: 'var(--font)',
+                }}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        ))}
+
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12 }}>Add Camera</div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <input
+              style={{ ...inputStyle, flex: '1 1 140px' }}
+              placeholder="Camera name (e.g. Back Door)"
+              value={newCamName}
+              onChange={e => setNewCamName(e.target.value)}
+            />
+            <input
+              style={{ ...inputStyle, flex: '1 1 100px' }}
+              placeholder="Camera ID (e.g. cam2)"
+              value={newCamId}
+              onChange={e => setNewCamId(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
+            />
+            <button
+              onClick={addCamera}
+              disabled={camSaving}
+              style={{
+                padding: '9px 18px', borderRadius: 8, border: 'none',
+                background: 'var(--accent-blue)', color: '#fff',
+                fontSize: 13, fontWeight: 600, fontFamily: 'var(--font)',
+                cursor: camSaving ? 'not-allowed' : 'pointer', opacity: camSaving ? 0.7 : 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {camSaving ? 'Adding…' : '+ Add'}
+            </button>
+          </div>
+          {camErr && <div style={{ fontSize: 13, color: '#ef4444', marginTop: 8 }}>{camErr}</div>}
+        </div>
       </div>
 
       {/* Counting */}
@@ -84,11 +169,8 @@ export default function Settings() {
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 36, textAlign: 'right' }}>
               {linePosition}%
             </span>
-            <input
-              type="range" min={0} max={100} value={linePosition}
-              onChange={e => setLinePosition(Number(e.target.value))}
-              style={{ width: 120 }}
-            />
+            <input type="range" min={0} max={100} value={linePosition}
+              onChange={e => setLinePosition(Number(e.target.value))} style={{ width: 120 }} />
           </div>
         </div>
 
@@ -97,11 +179,7 @@ export default function Settings() {
             <div className="settings-row-label">Count Direction</div>
             <div className="settings-row-sub">Which direction to count as a crossing</div>
           </div>
-          <select
-            className="settings-select"
-            value={countDirection}
-            onChange={e => setCountDirection(e.target.value)}
-          >
+          <select className="settings-select" value={countDirection} onChange={e => setCountDirection(e.target.value)}>
             <option value="down">Downward</option>
             <option value="up">Upward</option>
             <option value="right">Left to Right</option>
@@ -119,18 +197,15 @@ export default function Settings() {
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 36, textAlign: 'right' }}>
               {confidence}%
             </span>
-            <input
-              type="range" min={0} max={100} value={confidence}
-              onChange={e => setConfidence(Number(e.target.value))}
-              style={{ width: 120 }}
-            />
+            <input type="range" min={0} max={100} value={confidence}
+              onChange={e => setConfidence(Number(e.target.value))} style={{ width: 120 }} />
           </div>
         </div>
       </div>
 
-      {/* Camera */}
+      {/* Camera hardware */}
       <div className="glass-card settings-section">
-        <div className="settings-section-title">Camera</div>
+        <div className="settings-section-title">Camera Hardware</div>
 
         <div className="settings-row">
           <div>
@@ -141,24 +216,11 @@ export default function Settings() {
             type="number" min={0} max={5} value={cameraIndex}
             onChange={e => setCameraIndex(Number(e.target.value))}
             style={{
-              width: 64,
-              background: 'rgba(0,0,0,0.04)',
-              border: '1px solid rgba(0,0,0,0.1)',
-              borderRadius: 8,
-              color: 'var(--text-primary)',
-              fontSize: 14,
-              padding: '6px 10px',
-              textAlign: 'center',
+              width: 64, background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.1)',
+              borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
+              padding: '6px 10px', textAlign: 'center',
             }}
           />
-        </div>
-
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Firebase Sync</div>
-            <div className="settings-row-sub">Sync events and stats to Realtime Database</div>
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: '#22c55e' }}>Active</div>
         </div>
 
         <div className="settings-row">
@@ -170,7 +232,6 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Note */}
       <div className="glass-card settings-section" style={{ borderLeft: '3px solid rgba(29,110,244,0.6)' }}>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Note:</span>{' '}

@@ -16,12 +16,14 @@ function VideoIcon() {
 }
 
 export default function CameraFeed() {
-  const { devicePath } = useAuth()
+  const { devicePath, devices, deviceId, setDeviceId } = useAuth()
   const [ts, setTs] = useState(formatTimestamp(new Date()))
   const { data: snapshot }   = useFirebaseValue<string>(devicePath('camera/snapshot'), '', { cache: false })
   const { data: piIsOnline } = useFirebaseValue<boolean>(devicePath('camera/piConnected'), false)
 
   const imgSrc = snapshot ? `data:image/jpeg;base64,${snapshot}` : ''
+  const currentDevice = devices.find(d => d.id === deviceId)
+  const isLive = piIsOnline && !!imgSrc
 
   useEffect(() => {
     const id = setInterval(() => setTs(formatTimestamp(new Date())), 1000)
@@ -33,11 +35,7 @@ export default function CameraFeed() {
       <div className="camera-feed-wrap">
 
         {imgSrc ? (
-          <img
-            src={imgSrc}
-            alt="Live camera snapshot"
-            className="camera-stream-img"
-          />
+          <img src={imgSrc} alt="Live camera snapshot" className="camera-stream-img" />
         ) : (
           <>
             <div className="camera-grid">
@@ -47,26 +45,48 @@ export default function CameraFeed() {
             </div>
             <div className="camera-offline-content">
               <VideoIcon />
-              <span className="camera-placeholder-text">Camera Feed</span>
+              <span className="camera-placeholder-text">
+                {currentDevice?.name ?? 'Camera Feed'}
+              </span>
             </div>
           </>
         )}
 
         <div className="camera-rec-badge">
-          <div className={`rec-dot${piIsOnline && imgSrc ? '' : ' rec-dot-offline'}`} />
-          <span className="rec-text">{piIsOnline && imgSrc ? 'LIVE' : 'REC'}</span>
+          <div className={`rec-dot${isLive ? '' : ' rec-dot-offline'}`} />
+          <span className="rec-text">{isLive ? 'LIVE' : 'OFF'}</span>
         </div>
         <div className="camera-timestamp">{ts}</div>
       </div>
 
+      {/* Camera tabs — shown when multiple cameras exist */}
+      {devices.length > 1 && (
+        <div className="camera-tabs">
+          {devices.map(device => (
+            <button
+              key={device.id}
+              className={`camera-tab${device.id === deviceId ? ' active' : ''}`}
+              onClick={() => setDeviceId(device.id)}
+            >
+              {device.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Footer */}
       <div className="camera-footer">
-        <span className="camera-label">CAM · 01</span>
-        <div className="camera-dot-sep" />
-        <span className="camera-location">Provo, UT</span>
-        {piIsOnline && imgSrc && (
+        <span className="camera-label">{currentDevice?.name ?? 'Camera'}</span>
+        {isLive && (
           <>
             <div className="camera-dot-sep" />
             <span style={{ fontSize: 13, color: '#22c55e', fontWeight: 500 }}>Live</span>
+          </>
+        )}
+        {!isLive && (
+          <>
+            <div className="camera-dot-sep" />
+            <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 400 }}>Offline</span>
           </>
         )}
       </div>
