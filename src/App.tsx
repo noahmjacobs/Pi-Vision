@@ -14,7 +14,7 @@ export default function App() {
     <div className="app-root">
       <Header currentPage={page} onNavigate={setPage} />
       <main className="main-content">
-        {page === 'Dashboard' && <Dashboard />}
+        {page === 'Dashboard' && <Dashboard onNavigate={setPage} />}
         {page === 'Analytics' && <Analytics />}
         {page === 'Settings' && <Settings />}
       </main>

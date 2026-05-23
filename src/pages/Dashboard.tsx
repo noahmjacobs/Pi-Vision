@@ -8,6 +8,7 @@ import StatusBar from '../components/StatusBar'
 import { useFirebaseValue } from '../hooks/useFirebaseData'
 import { MOCK_STATS, MOCK_CAMERA, MOCK_EVENTS } from '../mockData'
 import { DBStats, DBCamera, DBEvent } from '../types'
+import { type Page } from '../App'
 
 function PeopleIcon({ color }: { color: string }) {
   return (
@@ -38,7 +39,7 @@ function formatUptime(ms: number): string {
   return `${s}s`
 }
 
-export default function Dashboard() {
+export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const { data: stats, loading: statsLoading } = useFirebaseValue<DBStats>('stats', MOCK_STATS)
   const { data: camera }                       = useFirebaseValue<DBCamera>('camera', MOCK_CAMERA)
   const { data: eventsRaw, loading: eventsLoading } = useFirebaseValue<Record<string, DBEvent>>('events', {} as Record<string, DBEvent>)
@@ -84,7 +85,7 @@ export default function Dashboard() {
             iconBg="rgba(245,158,11,0.12)"
             loading={false}
           />
-          <RecentEvents events={events} loading={eventsLoading} />
+          <RecentEvents events={events} loading={eventsLoading} onSeeAll={() => onNavigate('Analytics')} />
         </div>
       </div>
 
