@@ -1,16 +1,14 @@
-import { useState } from 'react'
-import { ref, set, remove } from 'firebase/database'
+import { useState, useEffect } from 'react'
+import { ref, set, remove, onValue, off } from 'firebase/database'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext'
 
-const LS_KEY = 'pv_config'
-
-function loadLocal() {
-  try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') } catch { return {} }
+function loadLocal(camId: string) {
+  try { return JSON.parse(localStorage.getItem(`pv_config_${camId}`) || '{}') } catch { return {} }
 }
 
-function saveLocal(cfg: object) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(cfg)) } catch {}
+function saveLocal(camId: string, cfg: object) {
+  try { localStorage.setItem(`pv_config_${camId}`, JSON.stringify(cfg)) } catch {}
 }
 
 const inputStyle: React.CSSProperties = {
@@ -21,30 +19,52 @@ const inputStyle: React.CSSProperties = {
 }
 
 export default function Settings() {
-  const { devicePath, companyId, devices } = useAuth()
-  const saved = loadLocal()
+  const { companyId, devices, deviceId } = useAuth()
 
-  const [linePosition,   setLinePosition]   = useState<number>(saved.linePosition   ?? 50)
-  const [countDirection, setCountDirection] = useState<string>(saved.countDirection ?? 'down')
-  const [confidence,     setConfidence]     = useState<number>(saved.confidence     ?? 45)
-  const [cameraIndex,    setCameraIndex]    = useState<number>(saved.cameraIndex    ?? 0)
+  // Which camera's settings we're editing — defaults to the currently viewed camera
+  const [selectedCamId, setSelectedCamId] = useState(deviceId || devices[0]?.id || '')
+
+  const configPath = (key: string) => `companies/${companyId}/devices/${selectedCamId}/config/${key}`
+
+  // Config state — reloads when selected camera changes
+  const [linePosition,   setLinePosition]   = useState(50)
+  const [countDirection, setCountDirection] = useState('down')
+  const [confidence,     setConfidence]     = useState(45)
+  const [cameraIndex,    setCameraIndex]    = useState(0)
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
-  const [newCamName, setNewCamName] = useState('')
-  const [newCamId,   setNewCamId]   = useState('')
-  const [camSaving,  setCamSaving]  = useState(false)
-  const [camErr,     setCamErr]     = useState('')
+  // Load config from Firebase when selected camera changes
+  useEffect(() => {
+    if (!selectedCamId || !companyId) return
+    const saved = loadLocal(selectedCamId)
+    setLinePosition(saved.linePosition   ?? 50)
+    setCountDirection(saved.countDirection ?? 'down')
+    setConfidence(saved.confidence       ?? 45)
+    setCameraIndex(saved.cameraIndex     ?? 0)
+
+    const r = ref(db, `companies/${companyId}/devices/${selectedCamId}/config`)
+    const h = (snap: any) => {
+      if (!snap.exists()) return
+      const d = snap.val()
+      if (d.linePosition   !== undefined) setLinePosition(d.linePosition)
+      if (d.countDirection !== undefined) setCountDirection(d.countDirection)
+      if (d.confidence     !== undefined) setConfidence(d.confidence)
+      if (d.cameraIndex    !== undefined) setCameraIndex(d.cameraIndex)
+    }
+    onValue(r, h)
+    return () => off(r, 'value', h)
+  }, [selectedCamId, companyId])
 
   async function handleSave() {
     setStatus('saving')
     const cfg = { linePosition, countDirection, confidence, cameraIndex }
-    saveLocal(cfg)
+    saveLocal(selectedCamId, cfg)
     try {
       await Promise.all([
-        set(ref(db, devicePath('config/linePosition')),   linePosition),
-        set(ref(db, devicePath('config/countDirection')), countDirection),
-        set(ref(db, devicePath('config/confidence')),     confidence),
-        set(ref(db, devicePath('config/cameraIndex')),    cameraIndex),
+        set(ref(db, configPath('linePosition')),   linePosition),
+        set(ref(db, configPath('countDirection')), countDirection),
+        set(ref(db, configPath('confidence')),     confidence),
+        set(ref(db, configPath('cameraIndex')),    cameraIndex),
       ])
       setStatus('saved')
     } catch {
@@ -52,6 +72,12 @@ export default function Settings() {
     }
     setTimeout(() => setStatus('idle'), 2500)
   }
+
+  // Camera management
+  const [newCamName, setNewCamName] = useState('')
+  const [newCamId,   setNewCamId]   = useState('')
+  const [camSaving,  setCamSaving]  = useState(false)
+  const [camErr,     setCamErr]     = useState('')
 
   async function addCamera() {
     setCamErr('')
@@ -73,8 +99,11 @@ export default function Settings() {
   async function removeCamera(id: string) {
     if (devices.length <= 1) return
     if (!confirm('Remove this camera? This cannot be undone.')) return
+    if (selectedCamId === id) setSelectedCamId(devices.find(d => d.id !== id)?.id ?? '')
     await remove(ref(db, `companies/${companyId}/devices/${id}`))
   }
+
+  const selectedDevice = devices.find(d => d.id === selectedCamId)
 
   return (
     <div className="settings-page">
@@ -98,7 +127,34 @@ export default function Settings() {
         </button>
       </div>
 
-      {/* Cameras */}
+      {/* Camera selector */}
+      {devices.length > 1 && (
+        <div className="glass-card" style={{ padding: '16px 20px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+            Editing settings for
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {devices.map(device => (
+              <button
+                key={device.id}
+                onClick={() => setSelectedCamId(device.id)}
+                style={{
+                  padding: '7px 16px', borderRadius: 8, fontFamily: 'var(--font)',
+                  fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                  border: device.id === selectedCamId ? 'none' : '1px solid rgba(0,0,0,0.1)',
+                  background: device.id === selectedCamId ? 'var(--accent-blue)' : 'rgba(0,0,0,0.04)',
+                  color: device.id === selectedCamId ? '#fff' : 'var(--text-secondary)',
+                  transition: 'background 0.15s, color 0.15s',
+                }}
+              >
+                {device.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Cameras list + add */}
       <div className="glass-card settings-section">
         <div className="settings-section-title">Cameras</div>
 
@@ -139,8 +195,7 @@ export default function Settings() {
               onChange={e => setNewCamId(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
             />
             <button
-              onClick={addCamera}
-              disabled={camSaving}
+              onClick={addCamera} disabled={camSaving}
               style={{
                 padding: '9px 18px', borderRadius: 8, border: 'none',
                 background: 'var(--accent-blue)', color: '#fff',
@@ -156,9 +211,14 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Counting */}
+      {/* Counting — scoped to selected camera */}
       <div className="glass-card settings-section">
-        <div className="settings-section-title">Counting</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div className="settings-section-title" style={{ marginBottom: 0 }}>Counting</div>
+          {selectedDevice && devices.length > 1 && (
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{selectedDevice.name}</span>
+          )}
+        </div>
 
         <div className="settings-row">
           <div>
@@ -205,7 +265,12 @@ export default function Settings() {
 
       {/* Camera hardware */}
       <div className="glass-card settings-section">
-        <div className="settings-section-title">Camera Hardware</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div className="settings-section-title" style={{ marginBottom: 0 }}>Camera Hardware</div>
+          {selectedDevice && devices.length > 1 && (
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{selectedDevice.name}</span>
+          )}
+        </div>
 
         <div className="settings-row">
           <div>
