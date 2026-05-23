@@ -6,56 +6,113 @@ import { DBEvent } from '../types'
 
 const localDate = (ts: number) => new Date(ts).toLocaleDateString('en-CA')
 
+export const PALETTE = [
+  '#1d6ef4', '#a855f7', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16',
+]
+
+export function deviceColor(color: string | undefined, index: number) {
+  return color ?? PALETTE[index % PALETTE.length]
+}
+
+function DonutChart({ slices, total }: {
+  slices: { label: string; value: number; color: string }[]
+  total: number
+}) {
+  const size = 130
+  const strokeWidth = 24
+  const r = (size - strokeWidth) / 2
+  const circ = 2 * Math.PI * r
+  let cursor = 0
+
+  return (
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
+      {total === 0 ? (
+        <circle cx={size/2} cy={size/2} r={r} fill="none"
+          stroke="rgba(0,0,0,0.08)" strokeWidth={strokeWidth} />
+      ) : slices.map((sl, i) => {
+        const frac  = sl.value / total
+        const dash  = frac * circ
+        const start = cursor
+        cursor += frac
+        return (
+          <circle key={i} cx={size/2} cy={size/2} r={r} fill="none"
+            stroke={sl.color} strokeWidth={strokeWidth}
+            strokeDasharray={`${dash} ${circ}`}
+            strokeDashoffset={-(start * circ) + circ * 0.25}
+          />
+        )
+      })}
+    </svg>
+  )
+}
+
 export default function Analytics() {
   const { companyId, devices } = useAuth()
   const todayStr = new Date().toLocaleDateString('en-CA')
   const [selectedDate, setSelectedDate] = useState(todayStr)
+  const [selectedHour, setSelectedHour] = useState<number | null>(null)
   const [hoveredHour, setHoveredHour]   = useState<number | null>(null)
-  const [hoveredDay, setHoveredDay]     = useState<number | null>(null)
+  const [hoveredDay,  setHoveredDay]    = useState<number | null>(null)
 
-  // Combined events and counts across all cameras
-  const [allEvents,       setAllEvents]       = useState<DBEvent[]>([])
-  const [combinedCounts,  setCombinedCounts]  = useState<Record<string, number>>({})
+  const [deviceEventsMap, setDeviceEventsMap] = useState<Record<string, DBEvent[]>>({})
+  const [deviceCountsMap, setDeviceCountsMap] = useState<Record<string, Record<string, { total?: number }>>>({})
 
   useEffect(() => {
     if (!companyId || !devices.length) return
-
-    const deviceEvents:  Record<string, Record<string, DBEvent>>              = {}
-    const deviceCounts:  Record<string, Record<string, { total?: number }>>   = {}
+    const rawEvents: Record<string, Record<string, DBEvent>> = {}
+    const rawCounts: Record<string, Record<string, { total?: number }>> = {}
     const unsubs: (() => void)[] = []
-
-    const recomputeEvents = () => {
-      const all = Object.values(deviceEvents).flatMap(ev => Object.values(ev))
-      setAllEvents(all)
-    }
-
-    const recomputeCounts = () => {
-      const combined: Record<string, number> = {}
-      Object.values(deviceCounts).forEach(counts => {
-        Object.entries(counts).forEach(([date, val]) => {
-          combined[date] = (combined[date] ?? 0) + (val.total ?? 0)
-        })
-      })
-      setCombinedCounts(combined)
-    }
 
     devices.forEach(device => {
       const evRef = ref(db, `companies/${companyId}/devices/${device.id}/events`)
       const coRef = ref(db, `companies/${companyId}/devices/${device.id}/counts`)
 
       unsubs.push(onValue(evRef, snap => {
-        deviceEvents[device.id] = snap.exists() ? snap.val() : {}
-        recomputeEvents()
+        rawEvents[device.id] = snap.exists() ? snap.val() : {}
+        setDeviceEventsMap(prev => ({
+          ...prev,
+          [device.id]: Object.values(rawEvents[device.id]),
+        }))
       }))
 
       unsubs.push(onValue(coRef, snap => {
-        deviceCounts[device.id] = snap.exists() ? snap.val() : {}
-        recomputeCounts()
+        rawCounts[device.id] = snap.exists() ? snap.val() : {}
+        setDeviceCountsMap(prev => ({ ...prev, [device.id]: rawCounts[device.id] }))
       }))
     })
 
     return () => unsubs.forEach(fn => fn())
   }, [companyId, devices.map(d => d.id).join(',')])
+
+  const allEvents = useMemo(() =>
+    Object.values(deviceEventsMap).flat(), [deviceEventsMap])
+
+  const combinedCounts = useMemo(() => {
+    const out: Record<string, number> = {}
+    Object.values(deviceCountsMap).forEach(counts => {
+      Object.entries(counts).forEach(([date, val]) => {
+        out[date] = (out[date] ?? 0) + (val.total ?? 0)
+      })
+    })
+    return out
+  }, [deviceCountsMap])
+
+  // Per-camera breakdown for selected date + optional hour
+  const perCamera = useMemo(() => {
+    return devices.map((device, i) => {
+      const events = (deviceEventsMap[device.id] ?? []).filter(ev => {
+        if (ev.type !== 'person') return false
+        if (localDate(ev.timestamp) !== selectedDate) return false
+        if (selectedHour !== null && new Date(ev.timestamp).getHours() !== selectedHour) return false
+        return true
+      })
+      return {
+        device,
+        count: events.length,
+        color: deviceColor(device.color, i),
+      }
+    })
+  }, [devices, deviceEventsMap, selectedDate, selectedHour])
 
   const weekData = useMemo(() => {
     const days = []
@@ -71,11 +128,11 @@ export default function Analytics() {
 
   const maxWeekly = Math.max(...weekData.map(d => d.total), 1)
 
-  const filteredEvents = useMemo(() => {
-    return allEvents
+  const filteredEvents = useMemo(() =>
+    allEvents
       .filter(ev => ev.type === 'person' && localDate(ev.timestamp) === selectedDate)
-      .sort((a, b) => b.timestamp - a.timestamp)
-  }, [allEvents, selectedDate])
+      .sort((a, b) => b.timestamp - a.timestamp),
+    [allEvents, selectedDate])
 
   const hourlyData = useMemo(() => {
     const counts = Array(24).fill(0)
@@ -83,12 +140,22 @@ export default function Analytics() {
     return counts
   }, [filteredEvents])
 
-  const maxHourly    = Math.max(...hourlyData, 1)
-  const displayTotal = combinedCounts[selectedDate] ?? filteredEvents.length
-  const tableEvents  = filteredEvents.slice(0, 50)
+  const maxHourly = Math.max(...hourlyData, 1)
 
+  const pieTotalCount = perCamera.reduce((s, c) => s + c.count, 0)
+  const displayTotal  = selectedHour !== null
+    ? pieTotalCount
+    : (combinedCounts[selectedDate] ?? pieTotalCount)
+
+  const tableEvents = filteredEvents.slice(0, 50)
   const BAR_HEIGHT      = 80
   const WEEK_BAR_HEIGHT = 60
+
+  function fmtHour(h: number) {
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    const disp = h % 12 || 12
+    return `${disp}${ampm}`
+  }
 
   return (
     <div className="analytics-page">
@@ -101,7 +168,7 @@ export default function Analytics() {
         </div>
         <input
           type="date" value={selectedDate} max={todayStr}
-          onChange={e => setSelectedDate(e.target.value)}
+          onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
           style={{
             background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
             borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
@@ -115,10 +182,9 @@ export default function Analytics() {
         <div className="chart-title">Last 7 Days</div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: WEEK_BAR_HEIGHT + 28, paddingBottom: 22, position: 'relative' }}>
           {weekData.map((day, i) => (
-            <div
-              key={day.key}
+            <div key={day.key}
               style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', position: 'relative', cursor: 'pointer' }}
-              onClick={() => setSelectedDate(day.key)}
+              onClick={() => { setSelectedDate(day.key); setSelectedHour(null) }}
               onMouseEnter={() => setHoveredDay(i)}
               onMouseLeave={() => setHoveredDay(null)}
             >
@@ -151,31 +217,100 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Total crossings */}
+      {/* Total crossings + donut */}
       <div className="glass-card" style={{ padding: '24px 28px' }}>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
-          Total Crossings — {selectedDate}
-        </div>
-        <div style={{ fontSize: 48, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
-          {displayTotal.toLocaleString()}
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6 }}>
-          people counted across all cameras
+        <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
+
+          {/* Left: number + hour filter */}
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
+              Total Crossings — {selectedDate}
+              {selectedHour !== null && ` · ${fmtHour(selectedHour)}`}
+            </div>
+            <div style={{ fontSize: 48, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+              {displayTotal.toLocaleString()}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 16 }}>
+              people counted across all cameras
+            </div>
+
+            {/* Hour filter */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>Filter hour:</span>
+              <select
+                value={selectedHour ?? ''}
+                onChange={e => setSelectedHour(e.target.value === '' ? null : Number(e.target.value))}
+                style={{
+                  background: 'rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.08)',
+                  borderRadius: 8, padding: '5px 10px', fontSize: 13,
+                  color: 'var(--text-primary)', fontFamily: 'var(--font)', cursor: 'pointer',
+                }}
+              >
+                <option value="">All Day</option>
+                {hourlyData.map((v, h) => v > 0 && (
+                  <option key={h} value={h}>{fmtHour(h)} ({v})</option>
+                ))}
+              </select>
+              {selectedHour !== null && (
+                <button
+                  onClick={() => setSelectedHour(null)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)', padding: 0 }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Right: donut + legend */}
+          {devices.length > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+              <div style={{ position: 'relative' }}>
+                <DonutChart slices={perCamera.map(c => ({ label: c.device.name, value: c.count, color: c.color }))} total={pieTotalCount} />
+                <div style={{
+                  position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
+                }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{pieTotalCount}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>total</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {perCamera.map(c => (
+                  <div key={c.device.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{c.device.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{c.count.toLocaleString()} crossings</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Hourly bar chart */}
+      {/* Hourly bar chart — click bar to filter pie */}
       <div className="glass-card chart-card">
-        <div className="chart-title">Crossings by Hour</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div className="chart-title" style={{ marginBottom: 0 }}>Crossings by Hour</div>
+          {selectedHour !== null && (
+            <button onClick={() => setSelectedHour(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)' }}>
+              Clear filter
+            </button>
+          )}
+        </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: BAR_HEIGHT + 24, paddingBottom: 20, position: 'relative' }}>
           {hourlyData.map((v, i) => (
-            <div
-              key={i}
+            <div key={i}
               style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', position: 'relative', cursor: v > 0 ? 'pointer' : 'default' }}
+              onClick={() => v > 0 && setSelectedHour(i === selectedHour ? null : i)}
               onMouseEnter={() => setHoveredHour(i)}
               onMouseLeave={() => setHoveredHour(null)}
             >
-              {hoveredHour === i && (
+              {hoveredHour === i && v > 0 && (
                 <div style={{
                   position: 'absolute', bottom: `calc(${(v / maxHourly) * BAR_HEIGHT}px + 6px)`,
                   left: '50%', transform: 'translateX(-50%)',
@@ -186,9 +321,11 @@ export default function Analytics() {
               )}
               <div style={{
                 width: '100%', height: `${(v / maxHourly) * BAR_HEIGHT}px`, minHeight: v > 0 ? 3 : 0,
-                background: i === new Date().getHours() && selectedDate === todayStr ? '#1d6ef4'
+                background: i === selectedHour ? '#1d6ef4'
+                  : i === new Date().getHours() && selectedDate === todayStr ? 'rgba(29,110,244,0.7)'
                   : hoveredHour === i ? 'rgba(29,110,244,0.65)' : 'rgba(29,110,244,0.35)',
                 borderRadius: '3px 3px 0 0', transition: 'height 0.2s, background 0.15s',
+                outline: i === selectedHour ? '2px solid rgba(29,110,244,0.4)' : 'none',
               }} />
             </div>
           ))}
@@ -198,6 +335,11 @@ export default function Analytics() {
             ))}
           </div>
         </div>
+        {selectedHour !== null && (
+          <div style={{ fontSize: 12, color: 'var(--accent-blue)', marginTop: 4 }}>
+            Showing breakdown for {fmtHour(selectedHour)} — click bar again or "Clear filter" to reset
+          </div>
+        )}
       </div>
 
       {/* Event log */}
