@@ -304,15 +304,12 @@ body {
 /* Camera feed */
 .camera-card {
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 .camera-feed-wrap {
   position: relative;
   width: 100%;
-  flex: 1;
-  min-height: 0;
+  aspect-ratio: 16 / 9;
   background: #0d0f14;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   overflow: hidden;
@@ -552,6 +549,10 @@ body {
 /* Recent Events */
 .events-card {
   padding: 20px 22px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .events-header {
@@ -586,6 +587,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .event-item {
