@@ -119,21 +119,20 @@ export default function Analytics() {
               {hoveredHour === i && (
                 <div style={{
                   position: 'absolute',
-                  bottom: `calc(${(v / maxHourly) * BAR_HEIGHT}px + 8px)`,
+                  bottom: `calc(${(v / maxHourly) * BAR_HEIGHT}px + 6px)`,
                   left: '50%',
                   transform: 'translateX(-50%)',
                   background: 'rgba(15,20,30,0.92)',
                   color: '#fff',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  padding: '4px 8px',
-                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: '3px 7px',
+                  borderRadius: 5,
                   whiteSpace: 'nowrap',
                   pointerEvents: 'none',
                   zIndex: 10,
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
                 }}>
-                  {i}:00 — {v} {v === 1 ? 'crossing' : 'crossings'}
+                  {v}
                 </div>
               )}
               <div
