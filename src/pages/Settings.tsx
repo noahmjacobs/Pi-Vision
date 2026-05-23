@@ -7,16 +7,60 @@ import { PALETTE, deviceColor } from './Analytics'
 function loadLocal(camId: string) {
   try { return JSON.parse(localStorage.getItem(`pv_config_${camId}`) || '{}') } catch { return {} }
 }
-
 function saveLocal(camId: string, cfg: object) {
   try { localStorage.setItem(`pv_config_${camId}`, JSON.stringify(cfg)) } catch {}
 }
 
 const inputStyle: React.CSSProperties = {
+  padding: '5px 10px', borderRadius: 8,
+  border: '1px solid rgba(0,0,0,0.1)', background: 'rgba(0,0,0,0.04)',
+  color: 'var(--text-primary)', fontSize: 14, fontFamily: 'var(--font)',
+  boxSizing: 'border-box',
+}
+
+const addInputStyle: React.CSSProperties = {
   width: '100%', padding: '9px 12px', borderRadius: 8,
   border: '1px solid rgba(0,0,0,0.1)', background: 'rgba(0,0,0,0.04)',
   color: 'var(--text-primary)', fontSize: 14, fontFamily: 'var(--font)',
   boxSizing: 'border-box',
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" strokeLinejoin="round"
+      style={{ transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
+function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="glass-card">
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '18px 22px', background: 'none', border: 'none', cursor: 'pointer',
+          fontFamily: 'var(--font)',
+        }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+          {title}
+        </span>
+        <span style={{ color: 'var(--text-tertiary)' }}>
+          <ChevronIcon open={open} />
+        </span>
+      </button>
+      {open && (
+        <div style={{ padding: '0 22px 22px' }}>
+          {children}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function CameraRow({ device, index, companyId, canRemove, onRemove }: {
@@ -46,16 +90,18 @@ function CameraRow({ device, index, companyId, canRemove, onRemove }: {
   }
 
   return (
-    <div className="settings-row" style={{ flexWrap: 'wrap', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+    <div style={{ borderBottom: '1px solid rgba(0,0,0,0.05)', padding: '12px 0' }}>
+      {/* Top row: dot + name/input + pencil */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{ width: 12, height: 12, borderRadius: '50%', background: color, flexShrink: 0 }} />
+
         {editing ? (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <>
             <input
               autoFocus value={nameVal}
               onChange={e => setNameVal(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setEditing(false); setNameVal(device.name) } }}
-              style={{ ...inputStyle, width: 160, padding: '5px 10px' }}
+              style={{ ...inputStyle, width: 160 }}
             />
             <button onClick={saveName} disabled={saving}
               style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: 'var(--accent-blue)', color: '#fff', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font)', cursor: 'pointer' }}>
@@ -65,42 +111,47 @@ function CameraRow({ device, index, companyId, canRemove, onRemove }: {
               style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid rgba(0,0,0,0.1)', background: 'none', fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font)', cursor: 'pointer' }}>
               Cancel
             </button>
-          </div>
+          </>
         ) : (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div className="settings-row-label">{device.name}</div>
-              <button onClick={() => setEditing(true)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, color: 'var(--text-tertiary)', fontSize: 12, lineHeight: 1 }}
-                title="Rename">✏️</button>
+          <>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>{device.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>ID: {device.id}</div>
             </div>
-            <div className="settings-row-sub">ID: {device.id}</div>
-          </div>
+            <button onClick={() => setEditing(true)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4, color: 'var(--text-tertiary)', fontSize: 13, lineHeight: 1, marginLeft: 2 }}
+              title="Edit">✏️</button>
+          </>
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-        {PALETTE.map(c => (
-          <button key={c} onClick={() => saveColor(c)} title={c}
-            style={{
-              width: 20, height: 20, borderRadius: '50%', border: 'none',
-              background: c, cursor: 'pointer', flexShrink: 0,
-              boxShadow: color === c ? `0 0 0 2px #fff, 0 0 0 4px ${c}` : 'none',
-              transition: 'box-shadow 0.15s',
-            }}
-          />
-        ))}
-      </div>
-
-      {canRemove && (
-        <button onClick={onRemove}
-          style={{
-            background: 'none', border: '1px solid rgba(239,68,68,0.3)',
-            borderRadius: 8, padding: '5px 12px', fontSize: 12,
-            color: '#ef4444', cursor: 'pointer', fontFamily: 'var(--font)',
-          }}>
-          Remove
-        </button>
+      {/* Edit mode: color swatches + remove */}
+      {editing && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginRight: 4 }}>Color:</span>
+            {PALETTE.map(c => (
+              <button key={c} onClick={() => saveColor(c)} title={c}
+                style={{
+                  width: 22, height: 22, borderRadius: '50%', border: 'none',
+                  background: c, cursor: 'pointer', flexShrink: 0,
+                  boxShadow: color === c ? `0 0 0 2px #fff, 0 0 0 4px ${c}` : 'none',
+                  transition: 'box-shadow 0.15s',
+                }}
+              />
+            ))}
+          </div>
+          {canRemove && (
+            <button onClick={onRemove}
+              style={{
+                background: 'none', border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: 8, padding: '5px 12px', fontSize: 12,
+                color: '#ef4444', cursor: 'pointer', fontFamily: 'var(--font)',
+              }}>
+              Remove Camera
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
@@ -108,7 +159,6 @@ function CameraRow({ device, index, companyId, canRemove, onRemove }: {
 
 export default function Settings() {
   const { companyId, devices, deviceId } = useAuth()
-
   const [selectedCamId, setSelectedCamId] = useState(deviceId || devices[0]?.id || '')
 
   useEffect(() => {
@@ -129,7 +179,6 @@ export default function Settings() {
     setConfidence(saved.confidence       ?? 45)
     setCameraIndex(saved.cameraIndex     ?? 0)
     setStatus('idle')
-
     const r = ref(db, `companies/${companyId}/devices/${selectedCamId}/config`)
     const h = (snap: any) => {
       if (!snap.exists()) return
@@ -199,83 +248,61 @@ export default function Settings() {
         <div className="page-subtitle">Configure your PiVision camera system</div>
       </div>
 
-      {/* ── 1. Cameras ── */}
-      <div className="glass-card settings-section">
-        <div className="settings-section-title">Cameras</div>
-
+      {/* ── 1. Cameras (collapsible) ── */}
+      <SectionCard title="Cameras">
         {devices.map((device, i) => (
-          <CameraRow
-            key={device.id}
-            device={device}
-            index={i}
-            companyId={companyId}
-            canRemove={devices.length > 1}
-            onRemove={() => removeCamera(device.id)}
-          />
+          <CameraRow key={device.id} device={device} index={i} companyId={companyId}
+            canRemove={devices.length > 1} onRemove={() => removeCamera(device.id)} />
         ))}
 
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12 }}>Add Camera</div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <input
-              style={{ ...inputStyle, flex: '1 1 140px' }}
-              placeholder="Camera name (e.g. Back Door)"
-              value={newCamName}
-              onChange={e => setNewCamName(e.target.value)}
-            />
-            <input
-              style={{ ...inputStyle, flex: '1 1 100px' }}
-              placeholder="Camera ID (e.g. cam2)"
-              value={newCamId}
-              onChange={e => setNewCamId(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
-            />
+            <input style={{ ...addInputStyle, flex: '1 1 140px' }}
+              placeholder="Camera name (e.g. Back Door)" value={newCamName}
+              onChange={e => setNewCamName(e.target.value)} />
+            <input style={{ ...addInputStyle, flex: '1 1 100px' }}
+              placeholder="Camera ID (e.g. cam2)" value={newCamId}
+              onChange={e => setNewCamId(e.target.value.toLowerCase().replace(/\s+/g, '-'))} />
             <button onClick={addCamera} disabled={camSaving}
               style={{
                 padding: '9px 18px', borderRadius: 8, border: 'none',
-                background: 'var(--accent-blue)', color: '#fff',
-                fontSize: 13, fontWeight: 600, fontFamily: 'var(--font)',
-                cursor: camSaving ? 'not-allowed' : 'pointer', opacity: camSaving ? 0.7 : 1,
-                whiteSpace: 'nowrap',
+                background: 'var(--accent-blue)', color: '#fff', fontSize: 13,
+                fontWeight: 600, fontFamily: 'var(--font)',
+                cursor: camSaving ? 'not-allowed' : 'pointer', opacity: camSaving ? 0.7 : 1, whiteSpace: 'nowrap',
               }}>
               {camSaving ? 'Adding…' : '+ Add'}
             </button>
           </div>
           {camErr && <div style={{ fontSize: 13, color: '#ef4444', marginTop: 8 }}>{camErr}</div>}
         </div>
-      </div>
+      </SectionCard>
 
-      {/* ── 2. Camera settings ── */}
-      <div className="glass-card settings-section">
+      {/* ── 2. Camera Settings (collapsible) ── */}
+      <SectionCard title={`Camera Settings${selectedDevice ? ` — ${selectedDevice.name}` : ''}`}>
 
-        {/* Header with camera selector */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
-          <div className="settings-section-title" style={{ marginBottom: 0 }}>
-            Camera Settings{selectedDevice ? ` — ${selectedDevice.name}` : ''}
+        {/* Camera selector pills */}
+        {devices.length > 1 && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+            {devices.map((device, i) => (
+              <button key={device.id} onClick={() => setSelectedCamId(device.id)}
+                style={{
+                  padding: '5px 14px', borderRadius: 8, fontFamily: 'var(--font)',
+                  fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                  border: device.id === selectedCamId ? 'none' : '1px solid rgba(0,0,0,0.1)',
+                  background: device.id === selectedCamId ? deviceColor(device.color, i) : 'rgba(0,0,0,0.04)',
+                  color: device.id === selectedCamId ? '#fff' : 'var(--text-secondary)',
+                  transition: 'background 0.15s, color 0.15s',
+                }}>
+                {device.name}
+              </button>
+            ))}
           </div>
-          {devices.length > 1 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {devices.map((device, i) => (
-                <button key={device.id} onClick={() => setSelectedCamId(device.id)}
-                  style={{
-                    padding: '5px 14px', borderRadius: 8, fontFamily: 'var(--font)',
-                    fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                    border: device.id === selectedCamId ? 'none' : '1px solid rgba(0,0,0,0.1)',
-                    background: device.id === selectedCamId ? deviceColor(device.color, i) : 'rgba(0,0,0,0.04)',
-                    color: device.id === selectedCamId ? '#fff' : 'var(--text-secondary)',
-                    transition: 'background 0.15s, color 0.15s',
-                  }}>
-                  {device.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Counting sub-section */}
         <div style={{ background: 'rgba(0,0,0,0.025)', borderRadius: 12, padding: '16px 18px', marginBottom: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 14 }}>
-            Counting
-          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 14 }}>Counting</div>
 
           <div className="settings-row">
             <div>
@@ -283,9 +310,7 @@ export default function Settings() {
               <div className="settings-row-sub">Counting line as % of frame height from top</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 36, textAlign: 'right' }}>
-                {linePosition}%
-              </span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 36, textAlign: 'right' }}>{linePosition}%</span>
               <input type="range" min={0} max={100} value={linePosition}
                 onChange={e => setLinePosition(Number(e.target.value))} style={{ width: 120 }} />
             </div>
@@ -311,9 +336,7 @@ export default function Settings() {
               <div className="settings-row-sub">Minimum YOLO confidence threshold (0–100%)</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 36, textAlign: 'right' }}>
-                {confidence}%
-              </span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 36, textAlign: 'right' }}>{confidence}%</span>
               <input type="range" min={0} max={100} value={confidence}
                 onChange={e => setConfidence(Number(e.target.value))} style={{ width: 120 }} />
             </div>
@@ -322,9 +345,7 @@ export default function Settings() {
 
         {/* Camera Hardware sub-section */}
         <div style={{ background: 'rgba(0,0,0,0.025)', borderRadius: 12, padding: '16px 18px', marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 14 }}>
-            Camera Hardware
-          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 14 }}>Camera Hardware</div>
 
           <div className="settings-row">
             <div>
@@ -333,11 +354,7 @@ export default function Settings() {
             </div>
             <input type="number" min={0} max={5} value={cameraIndex}
               onChange={e => setCameraIndex(Number(e.target.value))}
-              style={{
-                width: 64, background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.1)',
-                borderRadius: 8, color: 'var(--text-primary)', fontSize: 14,
-                padding: '6px 10px', textAlign: 'center',
-              }}
+              style={{ width: 64, background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: '6px 10px', textAlign: 'center' }}
             />
           </div>
 
@@ -350,7 +367,7 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Save button */}
+        {/* Save */}
         <button onClick={handleSave} disabled={status === 'saving'}
           style={{
             width: '100%', padding: '11px', borderRadius: 10, border: 'none',
@@ -368,7 +385,7 @@ export default function Settings() {
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 10, lineHeight: 1.5 }}>
           Settings apply when <code style={{ fontFamily: 'monospace', fontSize: 11, background: 'rgba(0,0,0,0.06)', padding: '1px 5px', borderRadius: 4 }}>camera.py</code> starts. Restart the script after saving.
         </div>
-      </div>
+      </SectionCard>
     </div>
   )
 }
