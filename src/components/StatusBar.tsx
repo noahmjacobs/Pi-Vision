@@ -7,7 +7,7 @@ interface StatusBarProps {
 export default function StatusBar({ camera }: StatusBarProps) {
   return (
     <div className="glass-card status-bar">
-      <div className="status-item">
+      <div className="status-item" data-tooltip="Raspberry Pi 4 connection status">
         <span className="status-label">Pi Status</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           <div style={{
@@ -23,31 +23,25 @@ export default function StatusBar({ camera }: StatusBarProps) {
 
       <div className="status-divider" />
 
-      <div className="status-item">
+      <div className="status-item" data-tooltip="Snapshot upload rate to Firebase">
         <span className="status-label">Frame Rate</span>
         <span className="status-value">{camera.fps} fps</span>
       </div>
 
       <div className="status-divider" />
 
-      <div className="status-item">
+      <div className="status-item" data-tooltip="Camera capture resolution">
         <span className="status-label">Resolution</span>
         <span className="status-value">{camera.resolution}</span>
       </div>
 
       <div className="status-divider" />
 
-      <div className="status-item">
+      <div className="status-item" data-tooltip="Firebase Realtime Database sync status">
         <span className="status-label">Storage</span>
         <span className="status-value">Firebase · Synced</span>
       </div>
 
-      <div className="status-divider" />
-
-      <div className="status-item">
-        <span className="status-label">Model</span>
-        <span className="status-value">Claude 3.5</span>
-      </div>
     </div>
   )
 }

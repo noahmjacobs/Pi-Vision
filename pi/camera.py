@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
-PiVision — Raspberry Pi camera script
---------------------------------------
-• Realtime DB snapshots        → 1 frame/second (base64 JPEG), shown on dashboard
-• Motion detection (OpenCV)    → Firebase Realtime Database events
-• GPT-4 Vision analysis        → Firebase /claude/lastAnalysis
-• MJPEG stream (LAN only)      → http://<local-ip>:8080/stream
+PiVision — Raspberry Pi camera script (Phase 2 — People Counter)
+-----------------------------------------------------------------
+• YOLOv8-nano person detection  → tracks individuals crossing a line
+• People count                  → Firebase /stats/peopleCount
+• Realtime DB snapshots         → 1 frame/second (base64 JPEG)
+• MJPEG stream (LAN only)       → http://<local-ip>:8080/stream
 
 Requirements:
   1. Place your Firebase service account JSON at pi/serviceAccount.json
-  2. Set environment variable: export OPENAI_API_KEY="sk-..."
-  3. Run: python3 camera.py
+  2. Run: python3 camera.py
 
 Optional env vars:
   CAMERA_INDEX        USB camera device index (default: 0)
-  MOTION_THRESHOLD    Min contour area in px² to count as motion (default: 3000)
-  ANALYSIS_INTERVAL   Seconds between GPT-4 Vision calls (default: 60)
-  MOTION_COOLDOWN     Min seconds between consecutive motion events (default: 2)
+  YOLO_MODEL          Model weights file (default: yolov8n.pt — downloads automatically)
+  YOLO_CONFIDENCE     Detection confidence threshold 0–1 (default: 0.45)
+  YOLO_SKIP           Run YOLO every Nth frame (default: 2 — helps on slower hardware)
+  COUNT_LINE_POS      Counting line position as fraction of frame height (default: 0.5)
 """
 
 import os
@@ -34,25 +35,26 @@ from datetime import datetime
 import cv2
 import firebase_admin
 from firebase_admin import credentials, db as rtdb
-from openai import OpenAI
+from ultralytics import YOLO
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 FIREBASE_DB_URL  = "https://pivision-28ddb-default-rtdb.firebaseio.com"
 FIREBASE_PROJECT = "pivision-28ddb"
 SERVICE_ACCOUNT  = os.path.join(os.path.dirname(__file__), "serviceAccount.json")
 
-OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
 CAMERA_INDEX      = int(os.environ.get("CAMERA_INDEX", "0"))
 STREAM_PORT       = int(os.environ.get("STREAM_PORT", "8080"))
-MOTION_THRESHOLD  = int(os.environ.get("MOTION_THRESHOLD", "3000"))
-ANALYSIS_INTERVAL = int(os.environ.get("ANALYSIS_INTERVAL", "60"))
-MOTION_COOLDOWN   = float(os.environ.get("MOTION_COOLDOWN", "2"))
+
+YOLO_MODEL      = os.environ.get("YOLO_MODEL", "yolov8n.pt")
+YOLO_CONFIDENCE = float(os.environ.get("YOLO_CONFIDENCE", "0.45"))
+YOLO_SKIP       = int(os.environ.get("YOLO_SKIP", "2"))
+COUNT_LINE_POS  = float(os.environ.get("COUNT_LINE_POS", "0.5"))  # fraction of relevant frame dimension
+COUNT_DIRECTION = os.environ.get("COUNT_DIRECTION", "down")        # down | up | right | left | both
 
 FRAME_WIDTH  = 1280
 FRAME_HEIGHT = 720
 STREAM_FPS   = 15
 
-# Snapshot dimensions — small enough to keep Realtime DB bandwidth low
 SNAPSHOT_W = 640
 SNAPSHOT_H = 360
 
@@ -63,6 +65,96 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("PiVision")
+
+
+# ── Centroid tracker ───────────────────────────────────────────────────────────
+class CentroidTracker:
+    """Tracks person centroids across frames and detects line crossings."""
+
+    def __init__(self, max_disappeared: int = 30, max_distance: int = 80) -> None:
+        self.next_id = 0
+        self.centroids: dict[int, tuple[int, int]] = {}
+        self.disappeared: dict[int, int] = {}
+        self.sides: dict[int, str] = {}   # 'above' or 'below' the counting line
+        self.max_disappeared = max_disappeared
+        self.max_distance = max_distance
+
+    def update(self, new_centroids: list[tuple[int, int]]) -> dict[int, tuple[int, int]]:
+        if not new_centroids:
+            for oid in list(self.disappeared):
+                self.disappeared[oid] += 1
+                if self.disappeared[oid] > self.max_disappeared:
+                    self._deregister(oid)
+            return self.centroids
+
+        if not self.centroids:
+            for c in new_centroids:
+                self._register(c)
+        else:
+            ids      = list(self.centroids)
+            existing = [self.centroids[i] for i in ids]
+            used_ex: set[int]  = set()
+            used_new: set[int] = set()
+
+            for ni, nc in enumerate(new_centroids):
+                best_j, best_d = -1, float("inf")
+                for ej, ec in enumerate(existing):
+                    if ej in used_ex:
+                        continue
+                    d = ((nc[0] - ec[0]) ** 2 + (nc[1] - ec[1]) ** 2) ** 0.5
+                    if d < best_d:
+                        best_d, best_j = d, ej
+                if best_j >= 0 and best_d < self.max_distance:
+                    oid = ids[best_j]
+                    self.centroids[oid] = nc
+                    self.disappeared[oid] = 0
+                    used_ex.add(best_j)
+                    used_new.add(ni)
+
+            for ej in range(len(existing)):
+                if ej not in used_ex:
+                    oid = ids[ej]
+                    self.disappeared[oid] += 1
+                    if self.disappeared[oid] > self.max_disappeared:
+                        self._deregister(oid)
+
+            for ni, nc in enumerate(new_centroids):
+                if ni not in used_new:
+                    self._register(nc)
+
+        return self.centroids
+
+    def check_crossings(self, line_pos: int, axis: str = "y", direction: str = "down") -> int:
+        """Returns number of people who crossed the line this frame.
+
+        axis='y'  → horizontal line, tracks vertical movement (down/up)
+        axis='x'  → vertical line, tracks horizontal movement (right/left)
+        direction: down | up | right | left | both
+        """
+        count = 0
+        for oid, (cx, cy) in self.centroids.items():
+            pos  = cy if axis == "y" else cx
+            side = "before" if pos < line_pos else "after"
+            prev = self.sides.get(oid)
+            if prev is not None and prev != side:
+                if direction == "both":
+                    count += 1
+                elif direction in ("down", "right") and prev == "before" and side == "after":
+                    count += 1
+                elif direction in ("up", "left") and prev == "after" and side == "before":
+                    count += 1
+            self.sides[oid] = side
+        return count
+
+    def _register(self, centroid: tuple[int, int]) -> None:
+        self.centroids[self.next_id] = centroid
+        self.disappeared[self.next_id] = 0
+        self.next_id += 1
+
+    def _deregister(self, oid: int) -> None:
+        del self.centroids[oid]
+        del self.disappeared[oid]
+        self.sides.pop(oid, None)
 
 
 # ── MJPEG frame buffer (LAN stream) ───────────────────────────────────────────
@@ -150,7 +242,7 @@ def init_firebase() -> None:
     log.info("Firebase connected ✓  (project: %s)", FIREBASE_PROJECT)
 
 
-# ── Firebase Realtime DB helpers ───────────────────────────────────────────────
+# ── Firebase helpers ───────────────────────────────────────────────────────────
 def push_event(event_type: str, label: str, sublabel: str) -> None:
     event_id = uuid.uuid4().hex[:8]
     rtdb.reference(f"events/{event_id}").set({
@@ -162,77 +254,75 @@ def push_event(event_type: str, label: str, sublabel: str) -> None:
     })
 
 
-def increment_motion_count() -> None:
-    ref = rtdb.reference("stats/motionEvents")
-    ref.set((ref.get() or 0) + 1)
+def update_people_count(count: int) -> None:
+    rtdb.reference("stats/peopleCount").set(count)
 
 
 def update_stats_last_event(label: str) -> None:
     rtdb.reference("stats/lastEvent").set(label)
 
 
-def update_claude(text: str) -> None:
-    rtdb.reference("claude").set({
-        "lastAnalysis": text,
-        "lastUpdated":  int(time.time() * 1000),
-    })
+def increment_daily_count(crossings: int) -> None:
+    """Reads counts/{YYYY-MM-DD}/total and increments it by crossings."""
+    date_key = datetime.now().strftime("%Y-%m-%d")
+    path = f"counts/{date_key}/total"
+    try:
+        current = rtdb.reference(path).get() or 0
+        rtdb.reference(path).set(current + crossings)
+    except Exception as exc:
+        log.warning("Daily count update failed: %s", exc)
+
+
+def load_firebase_config() -> dict:
+    """Reads config node from Firebase and returns it as a dict."""
+    try:
+        result = rtdb.reference("config").get()
+        if isinstance(result, dict):
+            return result
+        return {}
+    except Exception as exc:
+        log.warning("Failed to load Firebase config: %s", exc)
+        return {}
 
 
 def set_camera_status(connected: bool) -> None:
-    rtdb.reference("camera").update({
+    update: dict = {
         "piConnected": connected,
         "status":      "Connected" if connected else "Disconnected",
         "fps":         1 if connected else 0,
         "resolution":  "720p" if connected else "—",
-    })
+    }
+    if connected:
+        update["sessionStart"] = int(time.time() * 1000)
+    else:
+        update["sessionStart"] = 0  # stops uptime counter on dashboard
+    rtdb.reference("camera").update(update)
     if not connected:
         rtdb.reference("camera/snapshot").set("")
+        rtdb.reference("stats/peopleCount").set(0)
 
 
-# ── GPT-4 Vision ───────────────────────────────────────────────────────────────
-VISION_PROMPT = (
-    "You are a concise security camera AI assistant. "
-    "In 1–2 sentences describe exactly what you see in this camera frame: "
-    "any people, objects, activity, or unusual details. "
-    "If nothing notable is happening, say so briefly. Be direct and factual."
-)
-
-
-def analyse_frame_with_gpt4(frame, client: OpenAI) -> str | None:
-    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
-    b64 = base64.b64encode(buf).decode("utf-8")
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4o",
-            max_tokens=150,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text",      "text": VISION_PROMPT},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                ],
-            }],
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as exc:
-        log.warning("GPT-4 Vision error: %s", exc)
-        return None
-
-
-# ── Camera + motion loop ───────────────────────────────────────────────────────
-def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> None:
+# ── Camera + people counting loop ─────────────────────────────────────────────
+def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer) -> None:
     log.info(
-        "Motion detection started  (threshold=%dpx²  analysis_interval=%ds)",
-        MOTION_THRESHOLD, ANALYSIS_INTERVAL,
+        "Loading YOLO model: %s  (confidence=%.2f  skip=%d  line=%.0f%%)",
+        YOLO_MODEL, YOLO_CONFIDENCE, YOLO_SKIP, COUNT_LINE_POS * 100,
     )
-    bg_sub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=50, detectShadows=False)
+    model     = YOLO(YOLO_MODEL)
+    tracker   = CentroidTracker()
+    axis      = "x" if COUNT_DIRECTION in ("left", "right") else "y"
+    line_pos  = int((FRAME_WIDTH if axis == "x" else FRAME_HEIGHT) * COUNT_LINE_POS)
 
-    last_motion_at   = 0.0
-    last_analysis_at = 0.0
-    latest_frame     = None
-    frame_lock       = threading.Lock()
+    people_count = 0
+    latest_frame = None
+    frame_lock   = threading.Lock()
 
-    # ── Snapshot worker: 1 frame/second → Realtime Database as base64 ─────────
+    log.info(
+        "People counter ready — %s line at %d px  direction=%s",
+        "vertical" if axis == "x" else "horizontal", line_pos, COUNT_DIRECTION,
+    )
+
+    # ── Snapshot worker: 1 frame/second → Realtime Database ───────────────────
     def snapshot_worker() -> None:
         log.info("Snapshot worker started — pushing 1 frame/second to Firebase")
         while True:
@@ -241,7 +331,13 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
                 f = latest_frame.copy() if latest_frame is not None else None
             if f is None:
                 continue
-            small = cv2.resize(f, (SNAPSHOT_W, SNAPSHOT_H))
+            # Draw counting line so users can see it on the dashboard
+            annotated = f.copy()
+            if axis == "x":
+                cv2.line(annotated, (line_pos, 0), (line_pos, FRAME_HEIGHT), (0, 200, 255), 2)
+            else:
+                cv2.line(annotated, (0, line_pos), (FRAME_WIDTH, line_pos), (0, 200, 255), 2)
+            small = cv2.resize(annotated, (SNAPSHOT_W, SNAPSHOT_H))
             _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 60])
             b64 = base64.b64encode(buf).decode("utf-8")
             try:
@@ -251,35 +347,10 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
 
     threading.Thread(target=snapshot_worker, daemon=True).start()
 
-    # ── GPT-4 Vision worker ────────────────────────────────────────────────────
-    def vision_worker() -> None:
-        nonlocal last_analysis_at
-        log.info("Vision worker started — first analysis in %ds", ANALYSIS_INTERVAL)
-        while True:
-            time.sleep(5)
-            if openai_client is None:
-                continue
-            if time.time() - last_analysis_at < ANALYSIS_INTERVAL:
-                continue
-            with frame_lock:
-                snapshot = latest_frame.copy() if latest_frame is not None else None
-            if snapshot is None:
-                continue
-            log.info("Sending frame to GPT-4 Vision…")
-            result = analyse_frame_with_gpt4(snapshot, openai_client)
-            if result:
-                log.info("Analysis → %s", result)
-                try:
-                    update_claude(result)
-                except Exception as exc:
-                    log.warning("Firebase claude update failed: %s", exc)
-            last_analysis_at = time.time()
-
-    threading.Thread(target=vision_worker, daemon=True).start()
-
-    # ── Main capture loop ──────────────────────────────────────────────────────
+    # ── Main capture + detection loop ─────────────────────────────────────────
     _encode_params  = [cv2.IMWRITE_JPEG_QUALITY, 70]
     _frame_interval = 1.0 / STREAM_FPS
+    frame_num       = 0
 
     while True:
         ret, frame = cap.read()
@@ -298,38 +369,52 @@ def run_camera(cap: cv2.VideoCapture, frame_buf: FrameBuffer, openai_client) -> 
         with frame_lock:
             latest_frame = frame
 
-        fg_mask = bg_sub.apply(frame)
-        contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        motion_area = sum(cv2.contourArea(c) for c in contours)
+        frame_num += 1
+        if frame_num % YOLO_SKIP == 0:
+            results   = model(frame, classes=[0], conf=YOLO_CONFIDENCE, verbose=False)
+            centroids = []
+            for box in results[0].boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                centroids.append(((x1 + x2) // 2, (y1 + y2) // 2))
 
-        now = time.time()
-        if motion_area > MOTION_THRESHOLD and (now - last_motion_at) > MOTION_COOLDOWN:
-            last_motion_at = now
-            ts_label = datetime.now().strftime("%H:%M")
-            log.info("Motion  area=%.0fpx²  @ %s", motion_area, ts_label)
+            tracker.update(centroids)
+            crossings = tracker.check_crossings(line_pos, axis=axis, direction=COUNT_DIRECTION)
 
-            def _write_motion(ts=ts_label):
-                try:
-                    push_event("motion", "Motion detected", "USB webcam · Pi")
-                    increment_motion_count()
-                    update_stats_last_event(f"Motion · {ts}")
-                except Exception as exc:
-                    log.warning("Firebase write failed: %s", exc)
+            if crossings > 0:
+                people_count += crossings
+                ts_label = datetime.now().strftime("%H:%M")
+                log.info("Person crossed line  total=%d  @ %s", people_count, ts_label)
 
-            threading.Thread(target=_write_motion, daemon=True).start()
+                def _write_person(count=people_count, ts=ts_label, cx=crossings):
+                    try:
+                        push_event("person", "Person counted", f"Crossed line · {ts}")
+                        update_people_count(count)
+                        update_stats_last_event(f"Person · {ts}")
+                        increment_daily_count(cx)
+                    except Exception as exc:
+                        log.warning("Firebase write failed: %s", exc)
+
+                threading.Thread(target=_write_person, daemon=True).start()
 
         time.sleep(_frame_interval)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main() -> None:
-    if not OPENAI_API_KEY:
-        log.warning(
-            "OPENAI_API_KEY not set — GPT-4 Vision disabled. "
-            "Set with:  export OPENAI_API_KEY='sk-...'"
-        )
-
     init_firebase()
+
+    # Load config from Firebase and override defaults if present
+    fb_config = load_firebase_config()
+    global COUNT_LINE_POS, YOLO_CONFIDENCE, COUNT_DIRECTION
+    if "linePosition" in fb_config:
+        COUNT_LINE_POS = float(fb_config["linePosition"]) / 100.0
+        log.info("Firebase config: linePosition=%.2f", COUNT_LINE_POS)
+    if "confidence" in fb_config:
+        YOLO_CONFIDENCE = float(fb_config["confidence"]) / 100.0
+        log.info("Firebase config: confidence=%.2f", YOLO_CONFIDENCE)
+    if "countDirection" in fb_config:
+        COUNT_DIRECTION = str(fb_config["countDirection"])
+        log.info("Firebase config: countDirection=%s", COUNT_DIRECTION)
 
     frame_buf = FrameBuffer()
     start_mjpeg_server(frame_buf, STREAM_PORT)
@@ -350,12 +435,10 @@ def main() -> None:
         )
         sys.exit(1)
 
-    openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-
     try:
         set_camera_status(True)
         log.info("PiVision is running — press Ctrl+C to stop")
-        run_camera(cap, frame_buf, openai_client)
+        run_camera(cap, frame_buf)
     except KeyboardInterrupt:
         log.info("Shutting down…")
     finally:
