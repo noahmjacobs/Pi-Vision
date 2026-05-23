@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Header from './components/Header'
 import BottomNav from './components/BottomNav'
@@ -12,8 +12,13 @@ import DevicePicker from './pages/DevicePicker'
 export type Page = 'Dashboard' | 'Analytics' | 'Settings' | 'Admin'
 
 function AppInner() {
-  const { user, authLoading, isAdmin, devices, deviceId } = useAuth()
+  const { user, authLoading, isAdmin, companyId, devices, deviceId } = useAuth()
   const [page, setPage] = useState<Page>('Dashboard')
+
+  // Admin with no company selected → stay on Admin page
+  useEffect(() => {
+    if (isAdmin && !companyId) setPage('Admin')
+  }, [isAdmin, companyId])
 
   if (authLoading) {
     return (
@@ -35,9 +40,9 @@ function AppInner() {
     <div className="app-root">
       <Header currentPage={page} onNavigate={setPage} />
       <main className="main-content">
-        {page === 'Dashboard' && <Dashboard onNavigate={setPage} />}
-        {page === 'Analytics' && <Analytics />}
-        {page === 'Settings'  && <Settings />}
+        {page === 'Dashboard' && companyId && <Dashboard onNavigate={setPage} />}
+        {page === 'Analytics' && companyId && <Analytics />}
+        {page === 'Settings'  && companyId && <Settings />}
         {page === 'Admin' && isAdmin && <Admin onNavigate={setPage} />}
       </main>
       <BottomNav currentPage={page} onNavigate={setPage} />
