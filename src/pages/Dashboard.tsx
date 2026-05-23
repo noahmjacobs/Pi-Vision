@@ -6,7 +6,6 @@ import CameraFeed from '../components/CameraFeed'
 import RecentEvents from '../components/RecentEvents'
 import StatusBar from '../components/StatusBar'
 import { useFirebaseValue } from '../hooks/useFirebaseData'
-import { MOCK_STATS, MOCK_CAMERA, MOCK_EVENTS } from '../mockData'
 import { DBStats, DBCamera, DBEvent } from '../types'
 import { type Page } from '../App'
 import { useAuth } from '../context/AuthContext'
@@ -42,8 +41,8 @@ function formatUptime(ms: number): string {
 
 export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const { devicePath } = useAuth()
-  const { data: stats, loading: statsLoading } = useFirebaseValue<DBStats>(devicePath('stats'), MOCK_STATS)
-  const { data: camera }                       = useFirebaseValue<DBCamera>(devicePath('camera'), MOCK_CAMERA)
+  const { data: stats, loading: statsLoading } = useFirebaseValue<DBStats>(devicePath('stats'), { peopleCount: 0, lastEvent: '' })
+  const { data: camera }                       = useFirebaseValue<DBCamera>(devicePath('camera'), { piConnected: false, status: 'Offline', fps: 0, resolution: '' })
   const { data: eventsRaw, loading: eventsLoading } = useFirebaseValue<Record<string, DBEvent>>(devicePath('events'), {} as Record<string, DBEvent>)
 
   const [uptime, setUptime] = useState('—')
@@ -60,9 +59,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => 
     return () => clearInterval(id)
   }, [camera?.sessionStart])
 
-  const events: DBEvent[] = Object.values(eventsRaw).length > 0
-    ? Object.values(eventsRaw).sort((a, b) => b.timestamp - a.timestamp).slice(0, 6)
-    : MOCK_EVENTS
+  const events: DBEvent[] = Object.values(eventsRaw).sort((a, b) => b.timestamp - a.timestamp).slice(0, 6)
 
   return (
     <div className="dashboard">
