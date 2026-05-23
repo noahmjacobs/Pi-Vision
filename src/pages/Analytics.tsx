@@ -5,6 +5,8 @@ import { DBEvent } from '../types'
 export default function Analytics() {
   const todayStr = new Date().toISOString().split('T')[0]
   const [selectedDate, setSelectedDate] = useState(todayStr)
+  const [hoveredHour, setHoveredHour] = useState<number | null>(null)
+  const [hoveredDay, setHoveredDay]   = useState<number | null>(null)
 
   const { data: eventsRaw } = useFirebaseValue<Record<string, DBEvent>>(
     'events',
@@ -17,6 +19,27 @@ export default function Analytics() {
     0,
     { cache: false }
   )
+
+  const { data: allCounts } = useFirebaseValue<Record<string, { total: number }>>(
+    'counts',
+    {},
+    { cache: false }
+  )
+
+  const weekData = useMemo(() => {
+    const days = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const key   = d.toISOString().split('T')[0]
+      const label = d.toLocaleDateString('en-US', { weekday: 'short' })
+      const total = (allCounts as Record<string, { total?: number }>)[key]?.total ?? 0
+      days.push({ key, label, total })
+    }
+    return days
+  }, [allCounts])
+
+  const maxWeekly = Math.max(...weekData.map(d => d.total), 1)
 
   const filteredEvents = useMemo(() => {
     const all = Object.values(eventsRaw)
@@ -38,15 +61,12 @@ export default function Analytics() {
     return counts
   }, [filteredEvents])
 
-  const maxHourly = Math.max(...hourlyData, 1)
-
+  const maxHourly    = Math.max(...hourlyData, 1)
   const displayTotal = dailyTotal > 0 ? dailyTotal : filteredEvents.length
+  const tableEvents  = filteredEvents.slice(0, 50)
 
-  const tableEvents = filteredEvents.slice(0, 50)
-
-  const BAR_HEIGHT = 80
-
-  const [hoveredHour, setHoveredHour] = useState<number | null>(null)
+  const BAR_HEIGHT      = 80
+  const WEEK_BAR_HEIGHT = 60
 
   return (
     <div className="analytics-page">
@@ -70,6 +90,73 @@ export default function Analytics() {
             cursor: 'pointer',
           }}
         />
+      </div>
+
+      {/* 7-day overview */}
+      <div className="glass-card chart-card">
+        <div className="chart-title">Last 7 Days</div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: WEEK_BAR_HEIGHT + 28, paddingBottom: 22, position: 'relative' }}>
+          {weekData.map((day, i) => (
+            <div
+              key={day.key}
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                height: '100%',
+                position: 'relative',
+                cursor: 'pointer',
+              }}
+              onClick={() => setSelectedDate(day.key)}
+              onMouseEnter={() => setHoveredDay(i)}
+              onMouseLeave={() => setHoveredDay(null)}
+            >
+              {hoveredDay === i && day.total > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: `calc(${(day.total / maxWeekly) * WEEK_BAR_HEIGHT}px + 6px)`,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(15,20,30,0.92)',
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: '3px 7px',
+                  borderRadius: 5,
+                  whiteSpace: 'nowrap',
+                  pointerEvents: 'none',
+                  zIndex: 10,
+                }}>
+                  {day.total}
+                </div>
+              )}
+              <div style={{
+                width: '100%',
+                height: `${(day.total / maxWeekly) * WEEK_BAR_HEIGHT}px`,
+                minHeight: day.total > 0 ? 3 : 0,
+                background: day.key === selectedDate
+                  ? '#1d6ef4'
+                  : day.key === todayStr
+                  ? 'rgba(29,110,244,0.7)'
+                  : hoveredDay === i
+                  ? 'rgba(29,110,244,0.55)'
+                  : 'rgba(29,110,244,0.25)',
+                borderRadius: '3px 3px 0 0',
+                transition: 'height 0.2s, background 0.15s',
+              }} />
+            </div>
+          ))}
+          {/* X-axis labels */}
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', pointerEvents: 'none' }}>
+            {weekData.map(day => (
+              <div key={day.key} style={{ flex: 1, textAlign: 'center' }}>
+                <span className="bar-label">{day.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Total crossings */}

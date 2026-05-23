@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { ref, set } from 'firebase/database'
+import { db } from '../firebase'
 import StatCard from '../components/StatCard'
 import CameraFeed from '../components/CameraFeed'
 import RecentEvents from '../components/RecentEvents'
@@ -71,6 +73,8 @@ export default function Dashboard() {
             icon={<PeopleIcon color="#1d6ef4" />}
             iconBg="rgba(29,110,244,0.12)"
             loading={statsLoading}
+            showReset={camera?.piConnected}
+            onReset={() => set(ref(db, 'stats/peopleCount'), 0)}
           />
           <StatCard
             label="Uptime"
