@@ -51,6 +51,10 @@ YOLO_MODEL = 'yolov8n.pt'
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
+APP_VERSION   = '1.0.0'
+GITHUB_REPO   = 'noahmjacobs/pi-vision'
+DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
+
 
 # ── Firebase REST helpers ──────────────────────────────────────────────────────
 def fb_sign_in(email: str, password: str) -> dict:
@@ -102,6 +106,21 @@ def save_session(data: dict) -> None:
 
 def clear_session() -> None:
     SESSION_FILE.unlink(missing_ok=True)
+
+
+def fetch_latest_version() -> str | None:
+    try:
+        r = requests.get(
+            f'https://api.github.com/repos/{GITHUB_REPO}/releases/latest',
+            headers={'Accept': 'application/vnd.github+json'},
+            timeout=5,
+        )
+        if r.status_code == 200:
+            tag = r.json().get('tag_name', '')
+            return tag.lstrip('v')
+    except Exception:
+        pass
+    return None
 
 
 # ── Centroid tracker ───────────────────────────────────────────────────────────
@@ -313,6 +332,42 @@ class App(ctk.CTk):
             self._show_signin()
 
         self._poll_logs()
+        self.after(3000, self._check_for_update)
+
+    def _check_for_update(self) -> None:
+        def worker():
+            latest = fetch_latest_version()
+            if latest and latest != APP_VERSION:
+                self.after(0, lambda: self._show_update_dialog(latest))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_update_dialog(self, latest: str) -> None:
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Update Available')
+        dialog.geometry('380x200')
+        dialog.resizable(False, False)
+        dialog.configure(fg_color=BG2)
+        dialog.grab_set()
+        dialog.lift()
+
+        ctk.CTkLabel(dialog, text='Update Available', font=('Helvetica', 17, 'bold'),
+                     text_color=TEXT).pack(pady=(28, 4))
+        ctk.CTkLabel(dialog,
+                     text=f'PiVision Processor v{latest} is available.\nYou have v{APP_VERSION}.',
+                     font=('Helvetica', 13), text_color=DIM, justify='center').pack(pady=(0, 20))
+
+        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row.pack()
+
+        def open_download():
+            import webbrowser
+            webbrowser.open(DOWNLOAD_URL)
+            dialog.destroy()
+
+        ctk.CTkButton(btn_row, text='Download Update', fg_color=ACCENT,
+                      command=open_download, width=150).pack(side='left', padx=6)
+        ctk.CTkButton(btn_row, text='Not Now', fg_color=BG3, hover_color=BG3,
+                      command=dialog.destroy, width=100).pack(side='left', padx=6)
 
     def _try_restore_session(self, saved: dict) -> None:
         self._show_loading()
