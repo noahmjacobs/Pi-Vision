@@ -421,7 +421,7 @@ class App(ctk.CTk):
                 if not user_data:
                     raise ValueError('Account not set up yet. Contact your admin.')
 
-                company_id   = user_data.get('company', '')
+                company_id   = user_data.get('companyId') or user_data.get('company', '')
                 company_data = fb_get(f'companies/{company_id}', token) or {}
                 print(f'[Auth] company_id={company_id}  company_data keys={list(company_data.keys())}')
                 devices      = list((company_data.get('devices') or {}).keys())
