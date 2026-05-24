@@ -386,6 +386,88 @@ export default function Settings() {
           Settings apply when <code style={{ fontFamily: 'monospace', fontSize: 11, background: 'rgba(0,0,0,0.06)', padding: '1px 5px', borderRadius: 4 }}>camera.py</code> starts. Restart the script after saving.
         </div>
       </SectionCard>
+
+      {/* ── 3. PiVision Processor (collapsible) ── */}
+      <SectionCard title="PiVision Processor">
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 4 }}>
+            Process recorded video files directly from your computer. The PiVision Processor uses the same AI model as your cameras to count entries and automatically upload results to your dashboard.
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+            Sign in with your PiVision account, select a video file, place the counting line, and hit Process. Results appear in Analytics instantly.
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Mac download */}
+          <a
+            href="https://github.com/noahmjacobs/pi-vision/releases/latest/download/PiVision-mac.dmg"
+            download
+            style={{ textDecoration: 'none' }}
+          >
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 16,
+              padding: '14px 18px', borderRadius: 12,
+              border: '1px solid rgba(0,0,0,0.08)',
+              background: 'rgba(0,0,0,0.025)',
+              cursor: 'pointer', transition: 'background 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.05)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.025)')}
+            >
+              {/* Apple icon */}
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="var(--text-primary)" style={{ flexShrink: 0 }}>
+                <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Download for Mac</div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>macOS 11 or later · .dmg installer</div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </div>
+          </a>
+
+          {/* Windows download */}
+          <a
+            href="https://github.com/noahmjacobs/pi-vision/releases/latest/download/PiVision-windows.exe"
+            download
+            style={{ textDecoration: 'none' }}
+          >
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 16,
+              padding: '14px 18px', borderRadius: 12,
+              border: '1px solid rgba(0,0,0,0.08)',
+              background: 'rgba(0,0,0,0.025)',
+              cursor: 'pointer', transition: 'background 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.05)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.025)')}
+            >
+              {/* Windows icon */}
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="var(--text-primary)" style={{ flexShrink: 0 }}>
+                <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Download for Windows</div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>Windows 10 or later · .exe installer</div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </div>
+          </a>
+        </div>
+
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 14, lineHeight: 1.5 }}>
+          Requires a PiVision account. Your login credentials are stored securely on your device.
+        </div>
+      </SectionCard>
     </div>
   )
 }
