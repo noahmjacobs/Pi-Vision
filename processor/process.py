@@ -335,6 +335,8 @@ def process_video(video_path: str) -> None:
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main() -> None:
+    global COMPANY_ID, DEVICE_ID
+
     parser = argparse.ArgumentParser(description='PiVision offline video processor')
     parser.add_argument('--video',   required=True,  help='Path to video file (MP4, MOV, etc.)')
     parser.add_argument('--company', default=COMPANY_ID, help='Company ID (or set COMPANY_ID env var)')
@@ -342,7 +344,6 @@ def main() -> None:
     parser.add_argument('--force',   action='store_true', help='Re-process even if already processed')
     args = parser.parse_args()
 
-    global COMPANY_ID, DEVICE_ID
     COMPANY_ID = args.company
     DEVICE_ID  = args.device
 
