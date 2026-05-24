@@ -437,9 +437,10 @@ class App(ctk.CTk):
                 self.after(0, self._show_main)
 
             except Exception as e:
+                err_msg = str(e)
                 def reset():
                     self._signin_btn.configure(text='Sign In', state='normal')
-                    self._signin_err.configure(text=str(e))
+                    self._signin_err.configure(text=err_msg)
                 self.after(0, reset)
 
         threading.Thread(target=attempt, daemon=True).start()
