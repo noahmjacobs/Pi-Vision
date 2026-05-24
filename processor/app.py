@@ -343,44 +343,59 @@ class App(tk.Tk):
     # ── Loading screen ─────────────────────────────────────────────────────────
     def _show_loading(self) -> None:
         self._clear()
-        self.geometry('420x180')
+        self.geometry('420x160')
         self.resizable(False, False)
-        f = tk.Frame(self, bg=BG)
-        f.pack(fill='both', expand=True)
-        tk.Label(f, text='PiVision', font=('Helvetica', 26, 'bold'), bg=BG, fg=TEXT).pack(pady=(40, 8))
-        tk.Label(f, text='Signing in...', font=('Helvetica', 12), bg=BG, fg=DIM).pack()
+        hdr = tk.Frame(self, bg=ACCENT, pady=24)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='PiVision Processor', font=('Helvetica', 20, 'bold'),
+                 bg=ACCENT, fg='white').pack()
+        tk.Label(hdr, text='Signing in...', font=('Helvetica', 12),
+                 bg=ACCENT, fg='#bfdbfe').pack(pady=(4, 0))
 
     # ── Sign-in screen ─────────────────────────────────────────────────────────
     def _show_signin(self) -> None:
         self._clear()
-        self.geometry('420x400')
+        self.geometry('420x440')
         self.resizable(False, False)
 
-        outer = tk.Frame(self, bg=BG)
-        outer.pack(fill='both', expand=True, padx=48, pady=40)
+        # Blue header — we know this renders correctly on macOS
+        hdr = tk.Frame(self, bg=ACCENT, pady=20)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='PiVision Processor', font=('Helvetica', 20, 'bold'),
+                 bg=ACCENT, fg='white').pack()
 
-        tk.Label(outer, text='PiVision', font=('Helvetica', 28, 'bold'), bg=BG, fg=TEXT).pack()
-        tk.Label(outer, text='Video Processor', font=('Helvetica', 13), bg=BG, fg=DIM).pack(pady=(2, 28))
+        # Form card with slightly lighter bg
+        card = tk.Frame(self, bg=BG2, padx=36, pady=24)
+        card.pack(fill='x', padx=24, pady=20)
 
-        tk.Label(outer, text='Email', font=('Helvetica', 11), bg=BG, fg=DIM, anchor='w').pack(fill='x')
+        tk.Label(card, text='Email', font=('Helvetica', 11, 'bold'),
+                 bg=BG2, fg='white').pack(anchor='w')
         self._email_var = tk.StringVar()
-        tk.Entry(outer, textvariable=self._email_var, font=('Helvetica', 13),
-                 bg=BG2, fg=TEXT, insertbackground=TEXT, relief='flat', bd=8).pack(fill='x', pady=(2, 12), ipady=6)
+        email_entry = tk.Entry(card, textvariable=self._email_var, font=('Helvetica', 13),
+                               bg='white', fg='#111827', insertbackground='#111827',
+                               relief='solid', bd=1)
+        email_entry.pack(fill='x', pady=(4, 14), ipady=7)
 
-        tk.Label(outer, text='Password', font=('Helvetica', 11), bg=BG, fg=DIM, anchor='w').pack(fill='x')
+        tk.Label(card, text='Password', font=('Helvetica', 11, 'bold'),
+                 bg=BG2, fg='white').pack(anchor='w')
         self._pw_var = tk.StringVar()
-        pw_entry = tk.Entry(outer, textvariable=self._pw_var, font=('Helvetica', 13),
-                            bg=BG2, fg=TEXT, insertbackground=TEXT, relief='flat', bd=8, show='•')
-        pw_entry.pack(fill='x', pady=(2, 16), ipady=6)
+        pw_entry = tk.Entry(card, textvariable=self._pw_var, font=('Helvetica', 13),
+                            bg='white', fg='#111827', insertbackground='#111827',
+                            relief='solid', bd=1, show='•')
+        pw_entry.pack(fill='x', pady=(4, 16), ipady=7)
         pw_entry.bind('<Return>', lambda _: self._do_signin())
 
-        self._signin_err = tk.Label(outer, text='', font=('Helvetica', 11), bg=BG, fg=DANGER, wraplength=320)
+        self._signin_err = tk.Label(card, text='', font=('Helvetica', 11),
+                                    bg=BG2, fg='#f87171', wraplength=320)
         self._signin_err.pack(fill='x', pady=(0, 8))
 
-        self._signin_btn = tk.Button(outer, text='Sign In', font=('Helvetica', 13, 'bold'),
+        self._signin_btn = tk.Button(card, text='Sign In', font=('Helvetica', 13, 'bold'),
                                      bg=ACCENT, fg='white', relief='flat', pady=10,
-                                     cursor='hand2', command=self._do_signin)
+                                     cursor='hand2', command=self._do_signin,
+                                     activebackground='#2563eb', activeforeground='white')
         self._signin_btn.pack(fill='x', ipady=4)
+
+        email_entry.focus_set()
 
     def _do_signin(self) -> None:
         email    = self._email_var.get().strip()
