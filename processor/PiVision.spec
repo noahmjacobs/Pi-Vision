@@ -9,6 +9,19 @@ datas += collect_data_files('customtkinter')
 datas += collect_data_files('ultralytics')
 datas += [('icon.icns', '.'), ('icon.ico', '.')]
 
+# Bundle YOLO model weights so users never need to download them on first run
+import urllib.request, os
+_model_cache = os.path.join(os.path.expanduser('~'), '.cache', 'ultralytics', 'assets')
+_model_path  = os.path.join(_model_cache, 'yolov8m.pt')
+if not os.path.exists(_model_path):
+    os.makedirs(_model_cache, exist_ok=True)
+    print('Downloading yolov8m.pt for bundling...')
+    urllib.request.urlretrieve(
+        'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8m.pt',
+        _model_path,
+    )
+datas += [(_model_path, '.')]
+
 hidden = []
 hidden += collect_submodules('customtkinter')
 hidden += ['PIL._tkinter_finder', 'pkg_resources.py2_warn']

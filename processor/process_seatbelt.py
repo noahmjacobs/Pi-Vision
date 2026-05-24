@@ -338,7 +338,9 @@ def run_seatbelt_processing(
         log_cb(f'  {int(cap.get(3))}x{int(cap.get(4))}  {fps:.0f}fps  {total} frames')
         log_cb('Loading detection model...')
 
-        model   = YOLO('yolov8m.pt')  # Medium — better accuracy on desktop
+        import sys as _sys
+        _bundled = Path(_sys._MEIPASS) / 'yolov8m.pt' if getattr(_sys, 'frozen', False) else Path('yolov8m.pt')
+        model   = YOLO(str(_bundled) if _bundled.exists() else 'yolov8m.pt')
         tracker = VehicleTracker()
 
         file_mtime  = os.path.getmtime(video_path)
