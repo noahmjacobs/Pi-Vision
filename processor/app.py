@@ -414,13 +414,16 @@ class App(ctk.CTk):
                 auth  = fb_sign_in(email, password)
                 token = auth['idToken']
                 uid   = auth['localId']
+                print(f'[Auth] Signed in as uid={uid}')
 
                 user_data = fb_get(f'users/{uid}', token)
+                print(f'[Auth] user_data={user_data}')
                 if not user_data:
-                    raise ValueError('User profile not found. Contact your admin.')
+                    raise ValueError('Account not set up yet. Contact your admin.')
 
                 company_id   = user_data.get('company', '')
                 company_data = fb_get(f'companies/{company_id}', token) or {}
+                print(f'[Auth] company_id={company_id}  company_data keys={list(company_data.keys())}')
                 devices      = list((company_data.get('devices') or {}).keys())
 
                 session = {
@@ -437,7 +440,20 @@ class App(ctk.CTk):
                 self.after(0, self._show_main)
 
             except Exception as e:
-                err_msg = str(e)
+                import traceback
+                traceback.print_exc()
+                raw = str(e)
+                # Show a clean message — never expose tokens or full URLs
+                if '401' in raw or '403' in raw or 'Permission' in raw:
+                    err_msg = 'Access denied. Your account may not have permission.'
+                elif 'Invalid email or password' in raw:
+                    err_msg = 'Invalid email or password.'
+                elif 'not set up' in raw or 'not found' in raw:
+                    err_msg = raw
+                elif 'timeout' in raw.lower() or 'connect' in raw.lower():
+                    err_msg = 'Connection failed. Check your internet and try again.'
+                else:
+                    err_msg = 'Sign-in failed. See terminal for details.'
                 def reset():
                     self._signin_btn.configure(text='Sign In', state='normal')
                     self._signin_err.configure(text=err_msg)
