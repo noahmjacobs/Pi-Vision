@@ -67,7 +67,7 @@ YOLO_MODEL = 'yolov8n.pt'
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
-APP_VERSION   = '1.0.3'
+APP_VERSION   = '1.0.4'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
@@ -436,9 +436,8 @@ class App(ctk.CTk):
                     old_session = app_path / 'Contents' / 'Resources' / 'session.json'
                     session_data = old_session.read_text() if old_session.exists() else None
 
-                    if dst_app.exists():
-                        shutil.rmtree(dst_app)
-                    shutil.copytree(src_app, dst_app)
+                    # ditto overwrites in-place — no delete needed, handles running app cleanly
+                    subprocess.run(['ditto', str(src_app), str(dst_app)], check=True, capture_output=True)
                     subprocess.run(['xattr', '-cr', str(dst_app)], capture_output=True)
 
                     if session_data:
