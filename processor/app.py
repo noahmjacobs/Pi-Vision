@@ -49,13 +49,25 @@ PREVIEW_H = 360
 # ── Firebase config ────────────────────────────────────────────────────────────
 FIREBASE_API_KEY = 'AIzaSyAv8s0vErAwc3KZaRF55isbKTzhgjuwGNE'
 FIREBASE_DB_URL  = 'https://pivision-28ddb-default-rtdb.firebaseio.com'
-SESSION_FILE     = Path.home() / '.pivision_session.json'
+
+def _session_path() -> Path:
+    # Inside .app bundle → session dies when app is deleted
+    # Falls back to home dir when running as plain Python script
+    if getattr(sys, 'frozen', False):
+        exe = Path(sys.executable)
+        if exe.parts[-2] == 'MacOS' and exe.parts[-3] == 'Contents':
+            resources = exe.parent.parent / 'Resources'
+            resources.mkdir(parents=True, exist_ok=True)
+            return resources / 'session.json'
+    return Path.home() / '.pivision_session.json'
+
+SESSION_FILE = _session_path()
 
 YOLO_MODEL = 'yolov8n.pt'
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
-APP_VERSION   = '1.0.2'
+APP_VERSION   = '1.0.3'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
@@ -420,10 +432,19 @@ class App(ctk.CTk):
                         raise RuntimeError('No .app found in DMG')
                     src_app = apps[0]
                     dst_app = install_dir / 'PiVision.app'
+                    # Carry session over so user stays logged in after update
+                    old_session = app_path / 'Contents' / 'Resources' / 'session.json'
+                    session_data = old_session.read_text() if old_session.exists() else None
+
                     if dst_app.exists():
                         shutil.rmtree(dst_app)
                     shutil.copytree(src_app, dst_app)
                     subprocess.run(['xattr', '-cr', str(dst_app)], capture_output=True)
+
+                    if session_data:
+                        new_session = dst_app / 'Contents' / 'Resources' / 'session.json'
+                        new_session.parent.mkdir(parents=True, exist_ok=True)
+                        new_session.write_text(session_data)
                     subprocess.run(['hdiutil', 'detach', str(mnt_point)], capture_output=True)
 
                 self.after(0, lambda: self._relaunch(dst_app))
