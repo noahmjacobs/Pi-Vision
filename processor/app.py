@@ -480,12 +480,32 @@ class App(ctk.CTk):
         ctk.CTkLabel(hdr, text=s['email'], font=('Helvetica', 10),
                      text_color=DIM).pack(side='right')
 
-        # Company row (no device picker — processor uses first device automatically)
-        self._device_var = ctk.StringVar(value=s['devices'][0] if s['devices'] else 'cam1')
+        # Company row
         info = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        info.pack(fill='x', padx=20, pady=12)
+        info.pack(fill='x', padx=20, pady=(12, 8))
         ctk.CTkLabel(info, text=f'Company:  {s["companyName"]}', font=('Helvetica', 12),
                      text_color=DIM).pack(side='left')
+
+        # Location field with autocomplete
+        loc_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        loc_row.pack(fill='x', padx=20, pady=(0, 8))
+        ctk.CTkLabel(loc_row, text='Location:', font=('Helvetica', 12),
+                     text_color=DIM).pack(side='left')
+        self._loc_var = ctk.StringVar()
+        self._loc_entry = ctk.CTkEntry(
+            loc_row, textvariable=self._loc_var, font=('Helvetica', 13),
+            fg_color=BG2, text_color=TEXT, border_color=BG3,
+            placeholder_text='e.g. North Entrance, Parking Lot A...',
+            width=320, height=36,
+        )
+        self._loc_entry.pack(side='left', padx=(10, 0))
+
+        # Suggestions list (hidden until typing matches something)
+        self._sugg_frame = ctk.CTkFrame(self, fg_color=BG2, corner_radius=6,
+                                         border_width=1, border_color=BG3)
+        self._existing_locations: list[str] = list(s.get('devices', []))
+        self._loc_var.trace_add('write', self._on_loc_change)
+        self._load_locations()
 
         ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x')
 
@@ -631,6 +651,42 @@ class App(ctk.CTk):
                                   text='Click or use slider to move the counting line',
                                   fill='#475569', font=('Helvetica', 10))
 
+    def _load_locations(self) -> None:
+        def fetch():
+            try:
+                data = fb_get(f'companies/{self.session["companyId"]}/devices',
+                              self.session['token'])
+                if isinstance(data, dict):
+                    locs = sorted(data.keys())
+                    self._existing_locations = locs
+            except Exception:
+                pass
+        threading.Thread(target=fetch, daemon=True).start()
+
+    def _on_loc_change(self, *_) -> None:
+        typed = self._loc_var.get().strip().lower()
+        matches = [loc for loc in self._existing_locations
+                   if typed and typed in loc.lower() and loc.lower() != typed]
+
+        for w in self._sugg_frame.winfo_children():
+            w.destroy()
+
+        if matches:
+            self._sugg_frame.pack(fill='x', padx=30, pady=(0, 4))
+            for loc in matches[:6]:
+                ctk.CTkButton(
+                    self._sugg_frame, text=loc, font=('Helvetica', 11),
+                    fg_color='transparent', hover_color=BG3, text_color=TEXT,
+                    anchor='w', height=28,
+                    command=lambda l=loc: self._pick_location(l),
+                ).pack(fill='x', padx=4, pady=1)
+        else:
+            self._sugg_frame.pack_forget()
+
+    def _pick_location(self, loc: str) -> None:
+        self._loc_var.set(loc)
+        self._sugg_frame.pack_forget()
+
     def _on_slider(self, val: float) -> None:
         self.line_pos = val / 100
         self._line_label.configure(text=f'{int(val)}%')
@@ -664,13 +720,18 @@ class App(ctk.CTk):
         if not self.video_path:
             messagebox.showwarning('No Video', 'Please select a video file first.')
             return
+        location = self._loc_var.get().strip()
+        if not location:
+            messagebox.showwarning('No Location', 'Please enter a location name for this video.')
+            self._loc_entry.focus_set()
+            return
         if self._processing:
             return
 
         # Duplicate check before starting
         size  = os.path.getsize(self.video_path)
         fhash = file_hash(self.video_path, size)
-        base  = f'companies/{self.session["companyId"]}/devices/{self._device_var.get()}'
+        base  = f'companies/{self.session["companyId"]}/devices/{location}'
         try:
             previous = fb_get(f'{base}/processed/{fhash}', self.session['token'])
         except Exception:
@@ -719,7 +780,7 @@ class App(ctk.CTk):
             args=(
                 self.video_path,
                 self.session['companyId'],
-                self._device_var.get(),
+                location,
                 self.line_pos,
                 self.direction,
                 self.session['token'],
