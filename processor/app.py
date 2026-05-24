@@ -67,7 +67,7 @@ YOLO_MODEL = 'yolov8n.pt'
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
-APP_VERSION   = '1.0.6'
+APP_VERSION   = '1.0.9'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
@@ -222,7 +222,7 @@ def file_hash(path: str, size: int) -> str:
     return hashlib.md5(f'{Path(path).name}:{size}'.encode()).hexdigest()[:16]
 
 
-def run_processing(video_path, company_id, device_id, line_pos, direction, token, progress_cb, log_cb, done_cb):
+def run_processing(video_path, company_id, device_id, line_pos, direction, token, progress_cb, log_cb, done_cb, mode='people_counter'):
     try:
         cap    = cv2.VideoCapture(video_path)
         total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -243,6 +243,10 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
         record_date = datetime.fromtimestamp(file_mtime, tz=timezone.utc)
 
         log_cb('Processing frames...')
+
+        is_seatbelt   = mode == 'seatbelt'
+        unit_label    = 'Vehicle' if is_seatbelt else 'Person'
+        count_label   = 'vehicle' if is_seatbelt else 'person'
 
         people_count = 0
         last_event   = ''
@@ -279,9 +283,9 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
                 date_key = datetime.fromtimestamp(frame_dt).strftime('%Y-%m-%d')
                 ts_label = datetime.fromtimestamp(frame_dt).strftime('%H:%M')
                 event_id = uuid.uuid4().hex[:8]
-                pending.append((event_id, ts_ms, 'Person counted', f'Crossed line · {ts_label} (from video)'))
+                pending.append((event_id, ts_ms, f'{unit_label} counted', f'Crossed line · {ts_label} (from video)'))
                 daily[date_key] = daily.get(date_key, 0) + crossings
-                last_event = f'Person · {ts_label}'
+                last_event = f'{unit_label} · {ts_label}'
 
         cap.release()
 
@@ -292,7 +296,7 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
         for event_id, ts_ms, label, sublabel in pending:
             fb_put(f'{base}/events/{event_id}', {
                 'id': event_id, 'timestamp': ts_ms,
-                'type': 'person', 'label': label, 'sublabel': sublabel,
+                'type': count_label, 'label': label, 'sublabel': sublabel,
             }, token)
 
         for date_key, count in daily.items():
@@ -576,6 +580,7 @@ class App(ctk.CTk):
                 company_data = fb_get(f'companies/{company_id}', token) or {}
                 print(f'[Auth] company_id={company_id}  company_data keys={list(company_data.keys())}')
                 devices      = list((company_data.get('devices') or {}).keys())
+                mode         = company_data.get('mode', 'people_counter')
 
                 session = {
                     'token':        token,
@@ -585,6 +590,7 @@ class App(ctk.CTk):
                     'companyId':    company_id,
                     'companyName':  company_data.get('name', company_id),
                     'devices':      devices,
+                    'mode':         mode,
                 }
                 save_session(session)
                 self.session = session
@@ -619,12 +625,20 @@ class App(ctk.CTk):
         self.resizable(True, True)
         s = self.session
 
+        mode = s.get('mode', 'people_counter')
+        is_seatbelt = mode == 'seatbelt'
+        mode_label  = 'Seatbelt Compliance' if is_seatbelt else 'People Counter'
+        mode_color  = '#f59e0b' if is_seatbelt else ACCENT
+
         # Header
         hdr = ctk.CTkFrame(self, fg_color=BG2, corner_radius=0, height=52)
         hdr.pack(fill='x')
         hdr.pack_propagate(False)
         ctk.CTkLabel(hdr, text='PiVision Processor', font=('Helvetica', 15, 'bold'),
-                     text_color=TEXT).pack(side='left', padx=20)
+                     text_color=TEXT).pack(side='left', padx=(20, 8))
+        ctk.CTkLabel(hdr, text=mode_label, font=('Helvetica', 11, 'bold'),
+                     text_color='white', fg_color=mode_color, corner_radius=6,
+                     padx=8, pady=2).pack(side='left', pady=14)
         ctk.CTkButton(hdr, text='Sign Out', font=('Helvetica', 10),
                       fg_color=BG3, hover_color=BG3, text_color=DIM, width=80, height=28,
                       command=self._sign_out).pack(side='right', padx=12)
@@ -960,6 +974,7 @@ class App(ctk.CTk):
                 self.direction,
                 self.session['token'],
                 progress_cb, log_cb, done_cb,
+                self.session.get('mode', 'people_counter'),
             ),
             daemon=True,
         ).start()
