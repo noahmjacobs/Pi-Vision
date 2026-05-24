@@ -9,11 +9,16 @@ echo "==> Building PiVision.app..."
 python3 -m PyInstaller --noconfirm PiVision.spec
 
 echo "==> Creating PiVision-mac.dmg..."
+rm -rf _dmg_stage
+mkdir _dmg_stage
+cp -r dist/PiVision.app _dmg_stage/PiVision.app
+ln -sf /Applications _dmg_stage/Applications
 hdiutil create \
   -volname "PiVision Processor" \
-  -srcfolder dist/PiVision.app \
+  -srcfolder _dmg_stage \
   -ov -format UDZO \
   PiVision-mac.dmg
+rm -rf _dmg_stage
 
 echo ""
 echo "Done! PiVision-mac.dmg is ready."
