@@ -67,7 +67,7 @@ YOLO_MODEL = 'yolov8n.pt'
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
-APP_VERSION   = '1.0.5'
+APP_VERSION   = '1.0.6'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
@@ -455,8 +455,12 @@ class App(ctk.CTk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _relaunch(self, app_path: Path) -> None:
-        # Give the current process a moment to quit before opening the new one
-        subprocess.Popen(['bash', '-c', f'sleep 1.5 && open "{app_path}"'])
+        subprocess.Popen(
+            ['bash', '-c', f'sleep 1.5 && open "{app_path}"'],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         self.quit()
 
     def _try_restore_session(self, saved: dict) -> None:
