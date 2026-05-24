@@ -334,28 +334,66 @@ def process_video(video_path: str) -> None:
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
+def preview_counting_line(video_path: str) -> None:
+    """Show the middle frame of the video with the counting line drawn on it."""
+    cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames // 2)
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        log.error('Could not read middle frame for preview.')
+        return
+
+    height, width = frame.shape[:2]
+    axis = 'x' if COUNT_DIR in ('left', 'right') else 'y'
+    line = int((width if axis == 'x' else height) * COUNT_LINE)
+
+    if axis == 'y':
+        cv2.line(frame, (0, line), (width, line), (0, 0, 255), 3)
+    else:
+        cv2.line(frame, (line, 0), (line, height), (0, 0, 255), 3)
+
+    label = f'Counting line  pos={COUNT_LINE}  dir={COUNT_DIR}  (press any key to close)'
+    cv2.putText(frame, label, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+
+    cv2.imshow('PiVision — Counting Line Preview', frame)
+    log.info('Preview showing middle frame (frame %d/%d). Press any key to close.', total_frames // 2, total_frames)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
 def main() -> None:
-    global COMPANY_ID, DEVICE_ID
+    global COMPANY_ID, DEVICE_ID, COUNT_LINE, COUNT_DIR
 
     parser = argparse.ArgumentParser(description='PiVision offline video processor')
-    parser.add_argument('--video',   required=True,  help='Path to video file (MP4, MOV, etc.)')
-    parser.add_argument('--company', default=COMPANY_ID, help='Company ID (or set COMPANY_ID env var)')
-    parser.add_argument('--device',  default=DEVICE_ID,  help='Device ID (or set DEVICE_ID env var)')
-    parser.add_argument('--force',   action='store_true', help='Re-process even if already processed')
+    parser.add_argument('--video',     required=True,                    help='Path to video file (MP4, MOV, etc.)')
+    parser.add_argument('--company',   default=COMPANY_ID,               help='Company ID (or set COMPANY_ID env var)')
+    parser.add_argument('--device',    default=DEVICE_ID,                help='Device ID (or set DEVICE_ID env var)')
+    parser.add_argument('--force',     action='store_true',              help='Re-process even if already processed')
+    parser.add_argument('--line',      type=float, default=COUNT_LINE,   help='Counting line position 0.0–1.0 (default 0.5)')
+    parser.add_argument('--direction', default=COUNT_DIR,                help='down|up|left|right|both (default down)')
+    parser.add_argument('--preview',   action='store_true',              help='Show middle frame with counting line, then exit')
     args = parser.parse_args()
 
     COMPANY_ID = args.company
     DEVICE_ID  = args.device
+    COUNT_LINE = args.line
+    COUNT_DIR  = args.direction
+
+    video_path = args.video
+    if not os.path.exists(video_path):
+        log.error('Video file not found: %s', video_path)
+        sys.exit(1)
+
+    if args.preview:
+        preview_counting_line(video_path)
+        sys.exit(0)
 
     if not COMPANY_ID or not DEVICE_ID:
         log.error('Company ID and Device ID are required.\n'
                   '  --company your-company-id --device cam1\n'
                   '  or set COMPANY_ID and DEVICE_ID environment variables')
-        sys.exit(1)
-
-    video_path = args.video
-    if not os.path.exists(video_path):
-        log.error('Video file not found: %s', video_path)
         sys.exit(1)
 
     init_firebase()
@@ -367,7 +405,7 @@ def main() -> None:
 
     if previous and not args.force:
         prev_date = datetime.fromtimestamp(previous['processedAt'] / 1000).strftime('%B %d, %Y at %H:%M')
-        log.warning('⚠️  "%s" has already been processed (%s).', Path(video_path).name, prev_date)
+        log.warning('"%s" has already been processed (%s).', Path(video_path).name, prev_date)
         log.warning('   Previous run found %d crossings.', previous.get('vehicleCount', 0))
         answer = input('   Process again and overwrite? (y/n): ').strip().lower()
         if answer != 'y':
@@ -381,7 +419,7 @@ def main() -> None:
 
     # Mark as processed
     mark_processed(fhash, Path(video_path).name, file_size, 0)
-    log.info('✓ Marked as processed in Firebase.')
+    log.info('Marked as processed in Firebase.')
 
 
 if __name__ == '__main__':
