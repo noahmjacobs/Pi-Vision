@@ -12,6 +12,10 @@ import json
 import os
 import queue
 import hashlib
+import shutil
+import subprocess
+import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -51,7 +55,7 @@ YOLO_MODEL = 'yolov8n.pt'
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
-APP_VERSION   = '1.0.1'
+APP_VERSION   = '1.0.2'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
@@ -344,7 +348,7 @@ class App(ctk.CTk):
     def _show_update_dialog(self, latest: str) -> None:
         dialog = ctk.CTkToplevel(self)
         dialog.title('Update Available')
-        dialog.geometry('380x200')
+        dialog.geometry('400x220')
         dialog.resizable(False, False)
         dialog.configure(fg_color=BG2)
         dialog.grab_set()
@@ -352,22 +356,87 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(dialog, text='Update Available', font=('Helvetica', 17, 'bold'),
                      text_color=TEXT).pack(pady=(28, 4))
-        ctk.CTkLabel(dialog,
+        status_label = ctk.CTkLabel(dialog,
                      text=f'PiVision Processor v{latest} is available.\nYou have v{APP_VERSION}.',
-                     font=('Helvetica', 13), text_color=DIM, justify='center').pack(pady=(0, 20))
+                     font=('Helvetica', 13), text_color=DIM, justify='center')
+        status_label.pack(pady=(0, 14))
+
+        progress_bar = ctk.CTkProgressBar(dialog, width=320)
+        progress_bar.set(0)
 
         btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
         btn_row.pack()
 
-        def open_download():
-            import webbrowser
-            webbrowser.open(DOWNLOAD_URL)
-            dialog.destroy()
-
-        ctk.CTkButton(btn_row, text='Download Update', fg_color=ACCENT,
-                      command=open_download, width=150).pack(side='left', padx=6)
+        update_btn = ctk.CTkButton(btn_row, text='Update Now', fg_color=ACCENT,
+                      command=lambda: self._start_auto_update(dialog, status_label, progress_bar, btn_row, latest),
+                      width=150)
+        update_btn.pack(side='left', padx=6)
         ctk.CTkButton(btn_row, text='Not Now', fg_color=BG3, hover_color=BG3,
                       command=dialog.destroy, width=100).pack(side='left', padx=6)
+
+    def _start_auto_update(self, dialog, status_label, progress_bar, btn_row, latest: str) -> None:
+        for w in btn_row.winfo_children():
+            w.destroy()
+        progress_bar.pack(pady=(0, 16))
+
+        def worker():
+            try:
+                dmg_url = f'https://github.com/{GITHUB_REPO}/releases/latest/download/PiVision-mac.dmg'
+
+                # Locate current .app bundle
+                exe = Path(sys.executable)
+                if exe.parts[-2] == 'MacOS' and exe.parts[-3] == 'Contents':
+                    app_path = exe.parent.parent.parent
+                else:
+                    app_path = Path('/Applications/PiVision.app')
+                install_dir = app_path.parent
+
+                self.after(0, lambda: status_label.configure(text='Downloading…'))
+
+                with tempfile.TemporaryDirectory() as tmp:
+                    dmg_path   = Path(tmp) / 'PiVision-update.dmg'
+                    mnt_point  = Path(tmp) / 'mnt'
+                    mnt_point.mkdir()
+
+                    r = requests.get(dmg_url, stream=True, timeout=60)
+                    total = int(r.headers.get('content-length', 0))
+                    done  = 0
+                    with open(dmg_path, 'wb') as f:
+                        for chunk in r.iter_content(8192):
+                            f.write(chunk)
+                            done += len(chunk)
+                            if total:
+                                p = done / total
+                                self.after(0, lambda v=p: progress_bar.set(v))
+
+                    self.after(0, lambda: status_label.configure(text='Installing…'))
+
+                    subprocess.run(
+                        ['hdiutil', 'attach', str(dmg_path), '-nobrowse', '-mountpoint', str(mnt_point)],
+                        check=True, capture_output=True,
+                    )
+                    apps = list(mnt_point.glob('*.app'))
+                    if not apps:
+                        raise RuntimeError('No .app found in DMG')
+                    src_app = apps[0]
+                    dst_app = install_dir / 'PiVision.app'
+                    if dst_app.exists():
+                        shutil.rmtree(dst_app)
+                    shutil.copytree(src_app, dst_app)
+                    subprocess.run(['xattr', '-cr', str(dst_app)], capture_output=True)
+                    subprocess.run(['hdiutil', 'detach', str(mnt_point)], capture_output=True)
+
+                self.after(0, lambda: self._relaunch(dst_app))
+
+            except Exception as e:
+                err = str(e)
+                self.after(0, lambda: status_label.configure(text=f'Update failed: {err}'))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _relaunch(self, app_path: Path) -> None:
+        subprocess.Popen(['open', str(app_path)])
+        self.quit()
 
     def _try_restore_session(self, saved: dict) -> None:
         self._show_loading()
