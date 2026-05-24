@@ -51,7 +51,7 @@ YOLO_MODEL = 'yolov8n.pt'
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
-APP_VERSION   = '1.0.0'
+APP_VERSION   = '1.0.1'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
@@ -594,7 +594,7 @@ class App(ctk.CTk):
 
         self._dir_btns: dict[str, ctk.CTkButton] = {}
         for label, val in [('↓ Down', 'down'), ('↑ Up', 'up'), ('← Left', 'left'),
-                           ('→ Right', 'right'), ('↕ Both', 'both')]:
+                           ('→ Right', 'right')]:
             b = ctk.CTkButton(ctrl, text=label, font=('Helvetica', 11),
                               width=80, height=30, fg_color=BG3, hover_color=ACCENT,
                               text_color=DIM, command=lambda v=val: self._set_direction(v))
