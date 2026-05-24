@@ -21,9 +21,26 @@ from pathlib import Path
 import cv2
 import requests
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
+import customtkinter as ctk
 from ultralytics import YOLO
+
+# ── Appearance ─────────────────────────────────────────────────────────────────
+ctk.set_appearance_mode('dark')
+ctk.set_default_color_theme('blue')
+
+BG      = '#0f172a'
+BG2     = '#1e293b'
+BG3     = '#334155'
+ACCENT  = '#3b82f6'
+TEXT    = '#f1f5f9'
+DIM     = '#94a3b8'
+SUCCESS = '#22c55e'
+DANGER  = '#ef4444'
+
+PREVIEW_W = 640
+PREVIEW_H = 360
 
 # ── Firebase config ────────────────────────────────────────────────────────────
 FIREBASE_API_KEY = 'AIzaSyAv8s0vErAwc3KZaRF55isbKTzhgjuwGNE'
@@ -33,19 +50,6 @@ SESSION_FILE     = Path.home() / '.pivision_session.json'
 YOLO_MODEL = 'yolov8n.pt'
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
-
-PREVIEW_W = 640
-PREVIEW_H = 360
-
-# Palette
-BG      = '#0f172a'
-BG2     = '#1e293b'
-BG3     = '#334155'
-ACCENT  = '#3b82f6'
-TEXT    = '#f1f5f9'
-DIM     = '#94a3b8'
-SUCCESS = '#22c55e'
-DANGER  = '#ef4444'
 
 
 # ── Firebase REST helpers ──────────────────────────────────────────────────────
@@ -126,7 +130,6 @@ class CentroidTracker:
             existing = [self.centroids[i] for i in ids]
             used_ex: set[int] = set()
             used_new: set[int] = set()
-
             for ni, nc in enumerate(new_centroids):
                 best_j, best_d = -1, float('inf')
                 for ej, ec in enumerate(existing):
@@ -141,18 +144,15 @@ class CentroidTracker:
                     self.disappeared[oid] = 0
                     used_ex.add(best_j)
                     used_new.add(ni)
-
             for ej in range(len(existing)):
                 if ej not in used_ex:
                     oid = ids[ej]
                     self.disappeared[oid] += 1
                     if self.disappeared[oid] > self.max_disappeared:
                         self._deregister(oid)
-
             for ni, nc in enumerate(new_centroids):
                 if ni not in used_new:
                     self._register(nc)
-
         return self.centroids
 
     def check_crossings(self, line_pos: int, axis: str = 'y', direction: str = 'down') -> int:
@@ -182,7 +182,7 @@ class CentroidTracker:
         self.sides.pop(oid, None)
 
 
-# ── Processing (runs in background thread) ────────────────────────────────────
+# ── Processing (background thread) ────────────────────────────────────────────
 def file_hash(path: str, size: int) -> str:
     return hashlib.md5(f'{Path(path).name}:{size}'.encode()).hexdigest()[:16]
 
@@ -207,21 +207,20 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
         file_mtime  = os.path.getmtime(video_path)
         record_date = datetime.fromtimestamp(file_mtime, tz=timezone.utc)
 
-        log_cb('Processing...')
+        log_cb('Processing frames...')
 
         people_count = 0
         last_event   = ''
         pending: list = []
         daily: dict   = {}
         frame_num     = 0
-        start_time    = time.time()
 
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             frame_num += 1
-            progress_cb(int(frame_num / total * 100), people_count)
+            progress_cb(frame_num / total, people_count)
 
             if frame_num % YOLO_SKIP != 0:
                 continue
@@ -232,7 +231,6 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
                  (int(b.xyxy[0][1]) + int(b.xyxy[0][3])) // 2)
                 for b in results[0].boxes
             ]
-
             tracker.update(centroids)
             crossings = tracker.check_crossings(line, axis=axis, direction=direction)
 
@@ -252,12 +250,10 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
 
         cap.release()
 
-        elapsed = time.time() - start_time
-        log_cb(f'Done in {int(elapsed // 60)}m {int(elapsed % 60)}s — {people_count} crossings detected')
+        log_cb(f'Complete — {people_count} crossings detected')
         log_cb(f'Writing {len(pending)} events to Firebase...')
 
         base = f'companies/{company_id}/devices/{device_id}'
-
         for event_id, ts_ms, label, sublabel in pending:
             fb_put(f'{base}/events/{event_id}', {
                 'id': event_id, 'timestamp': ts_ms,
@@ -289,13 +285,12 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
         done_cb(False, 0)
 
 
-# ── GUI ────────────────────────────────────────────────────────────────────────
-class App(tk.Tk):
+# ── App ────────────────────────────────────────────────────────────────────────
+class App(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         self.title('PiVision Processor')
-        self.configure(bg=BG)
-        self.resizable(True, True)
+        self.configure(fg_color=BG)
 
         self.session: dict | None = None
         self.video_path: str | None = None
@@ -305,8 +300,6 @@ class App(tk.Tk):
         self.direction = 'down'
         self._processing = False
         self._log_queue: queue.Queue = queue.Queue()
-
-        # Preview layout tracking (set after first draw)
         self._px = self._py = 0
         self._pw = PREVIEW_W
         self._ph = PREVIEW_H
@@ -340,72 +333,81 @@ class App(tk.Tk):
         for w in self.winfo_children():
             w.destroy()
 
-    # ── Loading screen ─────────────────────────────────────────────────────────
+    # ── Loading ────────────────────────────────────────────────────────────────
     def _show_loading(self) -> None:
         self._clear()
         self.geometry('420x160')
         self.resizable(False, False)
-        hdr = tk.Frame(self, bg=ACCENT, pady=24)
-        hdr.pack(fill='x')
-        tk.Label(hdr, text='PiVision Processor', font=('Helvetica', 20, 'bold'),
-                 bg=ACCENT, fg='white').pack()
-        tk.Label(hdr, text='Signing in...', font=('Helvetica', 12),
-                 bg=ACCENT, fg='#bfdbfe').pack(pady=(4, 0))
+        f = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        f.pack(fill='both', expand=True)
+        ctk.CTkLabel(f, text='PiVision Processor', font=('Helvetica', 22, 'bold'),
+                     text_color=TEXT).pack(pady=(40, 6))
+        ctk.CTkLabel(f, text='Signing in...', font=('Helvetica', 12),
+                     text_color=DIM).pack()
 
-    # ── Sign-in screen ─────────────────────────────────────────────────────────
+    # ── Sign-in ────────────────────────────────────────────────────────────────
     def _show_signin(self) -> None:
         self._clear()
-        self.geometry('420x440')
+        self.geometry('420x460')
         self.resizable(False, False)
 
-        # Blue header — we know this renders correctly on macOS
-        hdr = tk.Frame(self, bg=ACCENT, pady=20)
+        # Blue header bar
+        hdr = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0, height=70)
         hdr.pack(fill='x')
-        tk.Label(hdr, text='PiVision Processor', font=('Helvetica', 20, 'bold'),
-                 bg=ACCENT, fg='white').pack()
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text='PiVision Processor', font=('Helvetica', 20, 'bold'),
+                     text_color='white').pack(expand=True)
 
-        # Form card with slightly lighter bg
-        card = tk.Frame(self, bg=BG2, padx=36, pady=24)
-        card.pack(fill='x', padx=24, pady=20)
+        # Form card
+        card = ctk.CTkFrame(self, fg_color=BG2, corner_radius=12)
+        card.pack(fill='x', padx=28, pady=24)
 
-        tk.Label(card, text='Email', font=('Helvetica', 11, 'bold'),
-                 bg=BG2, fg='white').pack(anchor='w')
-        self._email_var = tk.StringVar()
-        email_entry = tk.Entry(card, textvariable=self._email_var, font=('Helvetica', 13),
-                               bg='white', fg='#111827', insertbackground='#111827',
-                               relief='solid', bd=1)
-        email_entry.pack(fill='x', pady=(4, 14), ipady=7)
+        inner = ctk.CTkFrame(card, fg_color=BG2, corner_radius=0)
+        inner.pack(fill='x', padx=28, pady=24)
 
-        tk.Label(card, text='Password', font=('Helvetica', 11, 'bold'),
-                 bg=BG2, fg='white').pack(anchor='w')
-        self._pw_var = tk.StringVar()
-        pw_entry = tk.Entry(card, textvariable=self._pw_var, font=('Helvetica', 13),
-                            bg='white', fg='#111827', insertbackground='#111827',
-                            relief='solid', bd=1, show='•')
-        pw_entry.pack(fill='x', pady=(4, 16), ipady=7)
-        pw_entry.bind('<Return>', lambda _: self._do_signin())
+        ctk.CTkLabel(inner, text='Email', font=('Helvetica', 12, 'bold'),
+                     text_color=TEXT).pack(anchor='w')
+        self._email_var = ctk.StringVar()
+        self._email_entry = ctk.CTkEntry(
+            inner, textvariable=self._email_var, font=('Helvetica', 13),
+            fg_color='white', text_color='#111827', border_color='#d1d5db',
+            border_width=1, height=42,
+        )
+        self._email_entry.pack(fill='x', pady=(4, 14))
 
-        self._signin_err = tk.Label(card, text='', font=('Helvetica', 11),
-                                    bg=BG2, fg='#f87171', wraplength=320)
+        ctk.CTkLabel(inner, text='Password', font=('Helvetica', 12, 'bold'),
+                     text_color=TEXT).pack(anchor='w')
+        self._pw_var = ctk.StringVar()
+        pw = ctk.CTkEntry(
+            inner, textvariable=self._pw_var, font=('Helvetica', 13),
+            fg_color='white', text_color='#111827', border_color='#d1d5db',
+            border_width=1, height=42, show='•',
+        )
+        pw.pack(fill='x', pady=(4, 18))
+        pw.bind('<Return>', lambda _: self._do_signin())
+
+        self._signin_err = ctk.CTkLabel(inner, text='', font=('Helvetica', 11),
+                                         text_color=DANGER, wraplength=320)
         self._signin_err.pack(fill='x', pady=(0, 8))
 
-        self._signin_btn = tk.Button(card, text='Sign In', font=('Helvetica', 13, 'bold'),
-                                     bg=ACCENT, fg='white', relief='flat', pady=10,
-                                     cursor='hand2', command=self._do_signin,
-                                     activebackground='#2563eb', activeforeground='white')
-        self._signin_btn.pack(fill='x', ipady=4)
+        self._signin_btn = ctk.CTkButton(
+            inner, text='Sign In', font=('Helvetica', 13, 'bold'),
+            fg_color=ACCENT, hover_color='#2563eb', text_color='white',
+            height=46, command=self._do_signin,
+        )
+        self._signin_btn.pack(fill='x')
 
-        email_entry.focus_set()
+        self._email_entry.focus_set()
 
     def _do_signin(self) -> None:
         email    = self._email_var.get().strip()
         password = self._pw_var.get()
         if not email or not password:
-            self._signin_err.config(text='Enter your email and password.')
+            self._signin_err.configure(text='Enter your email and password.')
             return
 
-        self._signin_btn.config(text='Signing in...', state='disabled')
-        self._signin_err.config(text='')
+        self._signin_btn.configure(text='Signing in...', state='disabled')
+        self._signin_err.configure(text='')
 
         def attempt():
             try:
@@ -436,8 +438,8 @@ class App(tk.Tk):
 
             except Exception as e:
                 def reset():
-                    self._signin_btn.config(text='Sign In', state='normal')
-                    self._signin_err.config(text=str(e))
+                    self._signin_btn.configure(text='Sign In', state='normal')
+                    self._signin_err.configure(text=str(e))
                 self.after(0, reset)
 
         threading.Thread(target=attempt, daemon=True).start()
@@ -445,112 +447,116 @@ class App(tk.Tk):
     # ── Main screen ────────────────────────────────────────────────────────────
     def _show_main(self) -> None:
         self._clear()
-        self.geometry('800x740')
+        self.geometry('800x760')
         self.resizable(True, True)
         s = self.session
 
         # Header
-        hdr = tk.Frame(self, bg=BG2, padx=20, pady=14)
+        hdr = ctk.CTkFrame(self, fg_color=BG2, corner_radius=0, height=52)
         hdr.pack(fill='x')
-        tk.Label(hdr, text='PiVision Processor', font=('Helvetica', 15, 'bold'),
-                 bg=BG2, fg=TEXT).pack(side='left')
-        tk.Button(hdr, text='Sign Out', font=('Helvetica', 10),
-                  bg=BG3, fg=DIM, relief='flat', cursor='hand2',
-                  command=self._sign_out).pack(side='right')
-        tk.Label(hdr, text=s['email'], font=('Helvetica', 10),
-                 bg=BG2, fg=DIM).pack(side='right', padx=10)
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text='PiVision Processor', font=('Helvetica', 15, 'bold'),
+                     text_color=TEXT).pack(side='left', padx=20)
+        ctk.CTkButton(hdr, text='Sign Out', font=('Helvetica', 10),
+                      fg_color=BG3, hover_color=BG3, text_color=DIM, width=80, height=28,
+                      command=self._sign_out).pack(side='right', padx=12)
+        ctk.CTkLabel(hdr, text=s['email'], font=('Helvetica', 10),
+                     text_color=DIM).pack(side='right')
 
         # Company + device row
-        info = tk.Frame(self, bg=BG, padx=20, pady=12)
-        info.pack(fill='x')
-        tk.Label(info, text=f'Company:  {s["companyName"]}', font=('Helvetica', 12),
-                 bg=BG, fg=DIM).pack(side='left')
-        tk.Label(info, text='Device:', font=('Helvetica', 12), bg=BG, fg=DIM).pack(side='left', padx=(24, 6))
+        info = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        info.pack(fill='x', padx=20, pady=12)
+        ctk.CTkLabel(info, text=f'Company:  {s["companyName"]}', font=('Helvetica', 12),
+                     text_color=DIM).pack(side='left')
+        ctk.CTkLabel(info, text='Device:', font=('Helvetica', 12),
+                     text_color=DIM).pack(side='left', padx=(24, 6))
 
-        self._device_var = tk.StringVar(value=s['devices'][0] if s['devices'] else 'cam1')
+        self._device_var = ctk.StringVar(value=s['devices'][0] if s['devices'] else 'cam1')
         if s['devices']:
-            om = tk.OptionMenu(info, self._device_var, *s['devices'])
-            om.config(bg=BG2, fg=TEXT, relief='flat', font=('Helvetica', 12), highlightthickness=0,
-                      activebackground=BG3, activeforeground=TEXT)
-            om['menu'].config(bg=BG2, fg=TEXT, activebackground=ACCENT, activeforeground='white')
-            om.pack(side='left')
+            ctk.CTkOptionMenu(info, variable=self._device_var, values=s['devices'],
+                              fg_color=BG2, button_color=BG3, button_hover_color=ACCENT,
+                              text_color=TEXT, font=('Helvetica', 12)).pack(side='left')
         else:
-            tk.Entry(info, textvariable=self._device_var, font=('Helvetica', 12),
-                     bg=BG2, fg=TEXT, insertbackground=TEXT, relief='flat', bd=6, width=12).pack(side='left')
+            ctk.CTkEntry(info, textvariable=self._device_var, font=('Helvetica', 12),
+                         fg_color=BG2, text_color=TEXT, width=120).pack(side='left')
 
-        tk.Frame(self, bg=BG3, height=1).pack(fill='x')
+        ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x')
 
         # Video picker
-        vpick = tk.Frame(self, bg=BG, padx=20, pady=14)
-        vpick.pack(fill='x')
-        tk.Button(vpick, text='Browse for Video', font=('Helvetica', 12),
-                  bg=ACCENT, fg='white', relief='flat', cursor='hand2', pady=6, padx=16,
-                  command=self._pick_video).pack(side='left')
-        self._video_label = tk.Label(vpick, text='No video selected', font=('Helvetica', 11),
-                                     bg=BG, fg=DIM)
+        vpick = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        vpick.pack(fill='x', padx=20, pady=14)
+        ctk.CTkButton(vpick, text='Browse for Video', font=('Helvetica', 12),
+                      fg_color=ACCENT, hover_color='#2563eb', text_color='white',
+                      height=36, command=self._pick_video).pack(side='left')
+        self._video_label = ctk.CTkLabel(vpick, text='No video selected',
+                                          font=('Helvetica', 11), text_color=DIM)
         self._video_label.pack(side='left', padx=14)
 
-        # Preview canvas
-        canvas_wrap = tk.Frame(self, bg=BG, padx=20)
-        canvas_wrap.pack(fill='x')
+        # Preview canvas (tk.Canvas renders reliably on all platforms)
+        canvas_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        canvas_wrap.pack(fill='x', padx=20)
         self._canvas = tk.Canvas(canvas_wrap, width=PREVIEW_W, height=PREVIEW_H,
-                                  bg='#111827', relief='flat',
-                                  highlightthickness=1, highlightbackground=BG3,
-                                  cursor='crosshair')
+                                  bg='#111827', highlightthickness=1,
+                                  highlightbackground=BG3, cursor='crosshair')
         self._canvas.pack()
         self._canvas.bind('<Button-1>', self._on_canvas_click)
         self._draw_placeholder()
 
         # Direction controls
-        ctrl = tk.Frame(self, bg=BG, padx=20, pady=10)
-        ctrl.pack(fill='x')
-        tk.Label(ctrl, text='Counting direction:', font=('Helvetica', 12), bg=BG, fg=DIM).pack(side='left')
+        ctrl = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        ctrl.pack(fill='x', padx=20, pady=10)
+        ctk.CTkLabel(ctrl, text='Direction:', font=('Helvetica', 12),
+                     text_color=DIM).pack(side='left')
 
-        self._dir_btns: dict[str, tk.Button] = {}
-        for label, val in [('↓ Down', 'down'), ('↑ Up', 'up'), ('← Left', 'left'), ('→ Right', 'right'), ('↕ Both', 'both')]:
-            b = tk.Button(ctrl, text=label, font=('Helvetica', 11), relief='flat',
-                          cursor='hand2', padx=10, pady=4,
-                          command=lambda v=val: self._set_direction(v))
+        self._dir_btns: dict[str, ctk.CTkButton] = {}
+        for label, val in [('↓ Down', 'down'), ('↑ Up', 'up'), ('← Left', 'left'),
+                           ('→ Right', 'right'), ('↕ Both', 'both')]:
+            b = ctk.CTkButton(ctrl, text=label, font=('Helvetica', 11),
+                              width=80, height=30, fg_color=BG3, hover_color=ACCENT,
+                              text_color=DIM, command=lambda v=val: self._set_direction(v))
             b.pack(side='left', padx=3)
             self._dir_btns[val] = b
 
-        self._line_label = tk.Label(ctrl, text='Line: 50%', font=('Helvetica', 11), bg=BG, fg=DIM)
+        self._line_label = ctk.CTkLabel(ctrl, text='Line: 50%', font=('Helvetica', 11),
+                                         text_color=DIM)
         self._line_label.pack(side='right')
         self._update_dir_buttons()
 
-        tk.Frame(self, bg=BG3, height=1).pack(fill='x', pady=(6, 0))
+        ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x', pady=(6, 0))
 
         # Run row
-        run_row = tk.Frame(self, bg=BG, padx=20, pady=14)
-        run_row.pack(fill='x')
-        self._run_btn = tk.Button(run_row, text='Process Video', font=('Helvetica', 13, 'bold'),
-                                   bg=SUCCESS, fg='white', relief='flat', pady=8, padx=24,
-                                   cursor='hand2', command=self._run)
+        run_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        run_row.pack(fill='x', padx=20, pady=14)
+        self._run_btn = ctk.CTkButton(
+            run_row, text='Process Video', font=('Helvetica', 13, 'bold'),
+            fg_color=SUCCESS, hover_color='#16a34a', text_color='white',
+            height=44, command=self._run,
+        )
         self._run_btn.pack(side='left')
-        self._status_label = tk.Label(run_row, text='', font=('Helvetica', 11), bg=BG, fg=DIM)
+        self._status_label = ctk.CTkLabel(run_row, text='', font=('Helvetica', 11),
+                                           text_color=DIM)
         self._status_label.pack(side='left', padx=16)
 
-        self._progress = ttk.Progressbar(self, mode='determinate', maximum=100)
+        self._progress = ctk.CTkProgressBar(self, progress_color=ACCENT, fg_color=BG3, height=8,
+                                             corner_radius=4)
         self._progress.pack(fill='x', padx=20, pady=(0, 8))
+        self._progress.set(0)
 
-        # Log output
-        log_wrap = tk.Frame(self, bg=BG, padx=20, pady=0)
-        log_wrap.pack(fill='both', expand=True, pady=(0, 16))
-        scroll = tk.Scrollbar(log_wrap)
-        scroll.pack(side='right', fill='y')
-        self._log_text = tk.Text(log_wrap, font=('Menlo', 10), bg='#0d1117', fg=DIM,
-                                  relief='flat', state='disabled', yscrollcommand=scroll.set,
-                                  wrap='word', height=7)
+        # Log
+        log_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        log_wrap.pack(fill='both', expand=True, padx=20, pady=(0, 16))
+        self._log_text = ctk.CTkTextbox(log_wrap, font=('Menlo', 10),
+                                         fg_color='#0d1117', text_color=DIM)
         self._log_text.pack(fill='both', expand=True)
-        scroll.config(command=self._log_text.yview)
+        self._log_text.configure(state='disabled')
 
     # ── Preview ────────────────────────────────────────────────────────────────
     def _draw_placeholder(self) -> None:
         self._canvas.delete('all')
         self._canvas.create_text(
             PREVIEW_W // 2, PREVIEW_H // 2,
-            text='Select a video — click anywhere on the preview to set the counting line',
-            fill='#475569', font=('Helvetica', 12), width=400, justify='center',
+            text='Select a video — then click anywhere on the preview to set the counting line',
+            fill='#475569', font=('Helvetica', 12), width=420, justify='center',
         )
 
     def _pick_video(self) -> None:
@@ -561,7 +567,7 @@ class App(tk.Tk):
         if not path:
             return
         self.video_path = path
-        self._video_label.config(text=Path(path).name, fg=TEXT)
+        self._video_label.configure(text=Path(path).name, text_color=TEXT)
         self._load_preview()
 
     def _load_preview(self) -> None:
@@ -578,7 +584,6 @@ class App(tk.Tk):
     def _redraw_preview(self) -> None:
         if self._preview_frame is None:
             return
-
         h, w  = self._preview_frame.shape[:2]
         scale = min(PREVIEW_W / w, PREVIEW_H / h)
         nw, nh = int(w * scale), int(h * scale)
@@ -608,16 +613,14 @@ class App(tk.Tk):
         self._canvas.create_text(PREVIEW_W - 8, PREVIEW_H - 8, anchor='se',
                                   text='Click to move the counting line',
                                   fill='#475569', font=('Helvetica', 10))
-        self._line_label.config(text=f'Line: {int(self.line_pos * 100)}%')
+        self._line_label.configure(text=f'Line: {int(self.line_pos * 100)}%')
 
     def _on_canvas_click(self, event: tk.Event) -> None:
         if self._preview_frame is None:
             return
         axis = 'x' if self.direction in ('left', 'right') else 'y'
-        if axis == 'y':
-            rel = (event.y - self._py) / max(self._ph, 1)
-        else:
-            rel = (event.x - self._px) / max(self._pw, 1)
+        rel  = ((event.y - self._py) / max(self._ph, 1) if axis == 'y'
+                else (event.x - self._px) / max(self._pw, 1))
         self.line_pos = max(0.05, min(0.95, rel))
         self._redraw_preview()
 
@@ -628,8 +631,10 @@ class App(tk.Tk):
 
     def _update_dir_buttons(self) -> None:
         for val, btn in self._dir_btns.items():
-            btn.config(bg=ACCENT if val == self.direction else BG3,
-                       fg='white' if val == self.direction else DIM)
+            if val == self.direction:
+                btn.configure(fg_color=ACCENT, text_color='white')
+            else:
+                btn.configure(fg_color=BG3, text_color=DIM)
 
     # ── Run ────────────────────────────────────────────────────────────────────
     def _run(self) -> None:
@@ -640,14 +645,14 @@ class App(tk.Tk):
             return
 
         self._processing = True
-        self._run_btn.config(state='disabled', text='Processing...')
-        self._progress.configure(value=0)
-        self._status_label.config(text='', fg=DIM)
+        self._run_btn.configure(state='disabled', text='Processing...')
+        self._progress.set(0)
+        self._status_label.configure(text='', text_color=DIM)
 
-        def progress_cb(pct: int, count: int) -> None:
+        def progress_cb(frac: float, count: int) -> None:
             def _update():
-                self._progress.configure(value=pct)
-                self._status_label.config(text=f'{pct}%  ·  {count} crossings')
+                self._progress.set(frac)
+                self._status_label.configure(text=f'{int(frac * 100)}%  ·  {count} crossings')
             self.after(0, _update)
 
         def log_cb(msg: str) -> None:
@@ -656,10 +661,10 @@ class App(tk.Tk):
         def done_cb(success: bool, count: int) -> None:
             def _update():
                 self._processing = False
-                self._run_btn.config(state='normal', text='Process Video')
-                self._status_label.config(
+                self._run_btn.configure(state='normal', text='Process Video')
+                self._status_label.configure(
                     text=f'Done — {count} crossings written to dashboard' if success else 'Processing failed',
-                    fg=SUCCESS if success else DANGER,
+                    text_color=SUCCESS if success else DANGER,
                 )
             self.after(0, _update)
 
@@ -683,10 +688,10 @@ class App(tk.Tk):
             try:
                 msg = self._log_queue.get_nowait()
                 if hasattr(self, '_log_text'):
-                    self._log_text.config(state='normal')
+                    self._log_text.configure(state='normal')
                     self._log_text.insert('end', f'{msg}\n')
                     self._log_text.see('end')
-                    self._log_text.config(state='disabled')
+                    self._log_text.configure(state='disabled')
             except queue.Empty:
                 break
         self.after(100, self._poll_logs)

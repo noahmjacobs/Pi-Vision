@@ -3,3 +3,4 @@ firebase-admin
 ultralytics
 Pillow
 requests
+customtkinter
