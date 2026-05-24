@@ -72,7 +72,7 @@ YOLO_SKIP  = 2
 # Release process: bump here → push dev → merge main → create GitHub Release tagged v{APP_VERSION}
 # GitHub Actions auto-builds Mac .dmg and Windows .exe and attaches them to the release.
 # Existing users see an "Update Now" popup on next launch which installs silently.
-APP_VERSION   = '1.0.9'
+APP_VERSION   = '1.1.0'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
@@ -694,40 +694,46 @@ class App(ctk.CTk):
         canvas_wrap.pack(fill='x', padx=20)
         self._canvas = tk.Canvas(canvas_wrap, width=PREVIEW_W, height=PREVIEW_H,
                                   bg='#111827', highlightthickness=1,
-                                  highlightbackground=BG3, cursor='crosshair')
+                                  highlightbackground=BG3,
+                                  cursor='crosshair' if not is_seatbelt else 'arrow')
         self._canvas.pack()
-        self._canvas.bind('<Button-1>', self._on_canvas_click)
+        if not is_seatbelt:
+            self._canvas.bind('<Button-1>', self._on_canvas_click)
         self._draw_placeholder()
 
-        # Direction + position controls
-        ctrl = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        ctrl.pack(fill='x', padx=20, pady=(10, 4))
-        ctk.CTkLabel(ctrl, text='Direction:', font=('Helvetica', 12),
-                     text_color=DIM).pack(side='left')
+        # Direction + position controls — hidden in seatbelt mode (no counting line needed)
+        if not is_seatbelt:
+            ctrl = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+            ctrl.pack(fill='x', padx=20, pady=(10, 4))
+            ctk.CTkLabel(ctrl, text='Direction:', font=('Helvetica', 12),
+                         text_color=DIM).pack(side='left')
 
-        self._dir_btns: dict[str, ctk.CTkButton] = {}
-        for label, val in [('↓ Down', 'down'), ('↑ Up', 'up'), ('← Left', 'left'),
-                           ('→ Right', 'right')]:
-            b = ctk.CTkButton(ctrl, text=label, font=('Helvetica', 11),
-                              width=80, height=30, fg_color=BG3, hover_color=ACCENT,
-                              text_color=DIM, command=lambda v=val: self._set_direction(v))
-            b.pack(side='left', padx=3)
-            self._dir_btns[val] = b
-        self._update_dir_buttons()
+            self._dir_btns: dict[str, ctk.CTkButton] = {}
+            for label, val in [('↓ Down', 'down'), ('↑ Up', 'up'), ('← Left', 'left'),
+                               ('→ Right', 'right')]:
+                b = ctk.CTkButton(ctrl, text=label, font=('Helvetica', 11),
+                                  width=80, height=30, fg_color=BG3, hover_color=ACCENT,
+                                  text_color=DIM, command=lambda v=val: self._set_direction(v))
+                b.pack(side='left', padx=3)
+                self._dir_btns[val] = b
+            self._update_dir_buttons()
 
-        # Line position slider
-        pos_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        pos_row.pack(fill='x', padx=20, pady=(0, 6))
-        ctk.CTkLabel(pos_row, text='Position:', font=('Helvetica', 12),
-                     text_color=DIM).pack(side='left')
-        self._line_label = ctk.CTkLabel(pos_row, text='50%', font=('Helvetica', 12, 'bold'),
-                                         text_color=TEXT, width=40)
-        self._line_label.pack(side='right')
-        self._slider = ctk.CTkSlider(pos_row, from_=5, to=95, number_of_steps=90,
-                                      fg_color=BG3, progress_color=ACCENT, button_color=ACCENT,
-                                      button_hover_color='#2563eb', command=self._on_slider)
-        self._slider.set(50)
-        self._slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
+            pos_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+            pos_row.pack(fill='x', padx=20, pady=(0, 6))
+            ctk.CTkLabel(pos_row, text='Position:', font=('Helvetica', 12),
+                         text_color=DIM).pack(side='left')
+            self._line_label = ctk.CTkLabel(pos_row, text='50%', font=('Helvetica', 12, 'bold'),
+                                             text_color=TEXT, width=40)
+            self._line_label.pack(side='right')
+            self._slider = ctk.CTkSlider(pos_row, from_=5, to=95, number_of_steps=90,
+                                          fg_color=BG3, progress_color=ACCENT, button_color=ACCENT,
+                                          button_hover_color='#2563eb', command=self._on_slider)
+            self._slider.set(50)
+            self._slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
+        else:
+            self._dir_btns = {}
+            self._slider   = None
+            self._line_label = None
 
         ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x', pady=(2, 0))
 
@@ -950,10 +956,13 @@ class App(ctk.CTk):
         self._progress.set(0)
         self._status_label.configure(text='', text_color=DIM)
 
+        is_seatbelt = self.session.get('mode', 'people_counter') == 'seatbelt'
+        unit = 'vehicles' if is_seatbelt else 'crossings'
+
         def progress_cb(frac: float, count: int) -> None:
             def _update():
                 self._progress.set(frac)
-                self._status_label.configure(text=f'{int(frac * 100)}%  ·  {count} crossings')
+                self._status_label.configure(text=f'{int(frac * 100)}%  ·  {count} {unit}')
             self.after(0, _update)
 
         def log_cb(msg: str) -> None:
@@ -964,25 +973,39 @@ class App(ctk.CTk):
                 self._processing = False
                 self._run_btn.configure(state='normal', text='Process Video')
                 self._status_label.configure(
-                    text=f'Done — {count} crossings written to dashboard' if success else 'Processing failed',
+                    text=f'Done — {count} {unit} written to dashboard' if success else 'Processing failed',
                     text_color=SUCCESS if success else DANGER,
                 )
             self.after(0, _update)
 
-        threading.Thread(
-            target=run_processing,
-            args=(
-                self.video_path,
-                self.session['companyId'],
-                location,
-                self.line_pos,
-                self.direction,
-                self.session['token'],
-                progress_cb, log_cb, done_cb,
-                self.session.get('mode', 'people_counter'),
-            ),
-            daemon=True,
-        ).start()
+        if is_seatbelt:
+            from process_seatbelt import run_seatbelt_processing
+            threading.Thread(
+                target=run_seatbelt_processing,
+                args=(
+                    self.video_path,
+                    self.session['companyId'],
+                    location,
+                    self.session['token'],
+                    progress_cb, log_cb, done_cb,
+                ),
+                daemon=True,
+            ).start()
+        else:
+            threading.Thread(
+                target=run_processing,
+                args=(
+                    self.video_path,
+                    self.session['companyId'],
+                    location,
+                    self.line_pos,
+                    self.direction,
+                    self.session['token'],
+                    progress_cb, log_cb, done_cb,
+                    self.session.get('mode', 'people_counter'),
+                ),
+                daemon=True,
+            ).start()
 
     # ── Log polling ────────────────────────────────────────────────────────────
     def _poll_logs(self) -> None:

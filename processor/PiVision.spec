@@ -14,7 +14,7 @@ hidden += collect_submodules('customtkinter')
 hidden += ['PIL._tkinter_finder', 'pkg_resources.py2_warn']
 
 a = Analysis(
-    ['app.py'],
+    ['app.py', 'process_seatbelt.py'],
     pathex=[os.path.dirname(os.path.abspath(SPEC))],
     binaries=[],
     datas=datas,
