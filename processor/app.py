@@ -270,9 +270,11 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
 
         size  = os.path.getsize(video_path)
         fhash = file_hash(video_path, size)
-        fb_put(f'{base}/processed/{fhash}', {
-            'filename': Path(video_path).name,
-            'size': size,
+        # Store at company level so duplicate check works across any location
+        fb_put(f'companies/{company_id}/processed/{fhash}', {
+            'filename':    Path(video_path).name,
+            'size':        size,
+            'location':    device_id,
             'processedAt': int(time.time() * 1000),
             'vehicleCount': people_count,
         }, token)
@@ -728,25 +730,26 @@ class App(ctk.CTk):
         if self._processing:
             return
 
-        # Duplicate check before starting
-        size  = os.path.getsize(self.video_path)
-        fhash = file_hash(self.video_path, size)
-        base  = f'companies/{self.session["companyId"]}/devices/{location}'
+        # Duplicate check — stored at company level so it catches re-runs under any location
+        size      = os.path.getsize(self.video_path)
+        fhash     = file_hash(self.video_path, size)
+        dup_path  = f'companies/{self.session["companyId"]}/processed/{fhash}'
         try:
-            previous = fb_get(f'{base}/processed/{fhash}', self.session['token'])
+            previous = fb_get(dup_path, self.session['token'])
         except Exception:
             previous = None
 
         if previous and isinstance(previous, dict):
-            prev_date = datetime.fromtimestamp(
+            prev_date     = datetime.fromtimestamp(
                 previous.get('processedAt', 0) / 1000
             ).strftime('%B %d, %Y at %H:%M')
-            prev_count = previous.get('vehicleCount', 0)
+            prev_count    = previous.get('vehicleCount', 0)
+            prev_location = previous.get('location', 'unknown location')
             answer = messagebox.askyesno(
                 'Already Processed',
-                f'"{Path(self.video_path).name}" was already processed on {prev_date} '
-                f'and found {prev_count} crossings.\n\nProcess again? '
-                f'(This will add duplicate counts to the dashboard.)',
+                f'"{Path(self.video_path).name}" was already processed on {prev_date}\n'
+                f'Location: {prev_location}  ·  {prev_count} crossings found.\n\n'
+                f'Process again? (This will add duplicate counts to the dashboard.)',
             )
             if not answer:
                 return
