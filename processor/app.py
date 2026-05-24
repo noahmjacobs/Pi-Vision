@@ -1,0 +1,687 @@
+#!/usr/bin/env python3
+"""
+PiVision Desktop Processor
+----------------------------
+Sign in with your PiVision account, pick a video, drag the counting line
+into position, and hit Process. Results appear live in the dashboard.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import queue
+import hashlib
+import threading
+import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+import cv2
+import requests
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+from PIL import Image, ImageTk
+from ultralytics import YOLO
+
+# ── Firebase config ────────────────────────────────────────────────────────────
+FIREBASE_API_KEY = 'AIzaSyAv8s0vErAwc3KZaRF55isbKTzhgjuwGNE'
+FIREBASE_DB_URL  = 'https://pivision-28ddb-default-rtdb.firebaseio.com'
+SESSION_FILE     = Path.home() / '.pivision_session.json'
+
+YOLO_MODEL = 'yolov8n.pt'
+YOLO_CONF  = 0.45
+YOLO_SKIP  = 2
+
+PREVIEW_W = 640
+PREVIEW_H = 360
+
+# Palette
+BG      = '#0f172a'
+BG2     = '#1e293b'
+BG3     = '#334155'
+ACCENT  = '#3b82f6'
+TEXT    = '#f1f5f9'
+DIM     = '#94a3b8'
+SUCCESS = '#22c55e'
+DANGER  = '#ef4444'
+
+
+# ── Firebase REST helpers ──────────────────────────────────────────────────────
+def fb_sign_in(email: str, password: str) -> dict:
+    url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}'
+    r = requests.post(url, json={'email': email, 'password': password, 'returnSecureToken': True}, timeout=10)
+    if r.status_code == 400:
+        raise ValueError('Invalid email or password.')
+    r.raise_for_status()
+    return r.json()
+
+
+def fb_refresh(refresh_token: str) -> dict:
+    url = f'https://securetoken.googleapis.com/v1/token?key={FIREBASE_API_KEY}'
+    r = requests.post(url, json={'grant_type': 'refresh_token', 'refresh_token': refresh_token}, timeout=10)
+    r.raise_for_status()
+    d = r.json()
+    return {'idToken': d['id_token'], 'refreshToken': d['refresh_token']}
+
+
+def fb_get(path: str, token: str):
+    r = requests.get(f'{FIREBASE_DB_URL}/{path}.json?auth={token}', timeout=10)
+    r.raise_for_status()
+    return r.json()
+
+
+def fb_put(path: str, data, token: str) -> None:
+    r = requests.put(f'{FIREBASE_DB_URL}/{path}.json?auth={token}', json=data, timeout=10)
+    r.raise_for_status()
+
+
+def fb_patch(path: str, data: dict, token: str) -> None:
+    r = requests.patch(f'{FIREBASE_DB_URL}/{path}.json?auth={token}', json=data, timeout=10)
+    r.raise_for_status()
+
+
+# ── Session ────────────────────────────────────────────────────────────────────
+def load_session() -> dict | None:
+    try:
+        if SESSION_FILE.exists():
+            return json.loads(SESSION_FILE.read_text())
+    except Exception:
+        pass
+    return None
+
+
+def save_session(data: dict) -> None:
+    SESSION_FILE.write_text(json.dumps(data))
+
+
+def clear_session() -> None:
+    SESSION_FILE.unlink(missing_ok=True)
+
+
+# ── Centroid tracker ───────────────────────────────────────────────────────────
+class CentroidTracker:
+    def __init__(self, max_disappeared: int = 30, max_distance: int = 80) -> None:
+        self.next_id = 0
+        self.centroids: dict[int, tuple] = {}
+        self.disappeared: dict[int, int] = {}
+        self.sides: dict[int, str] = {}
+        self.max_disappeared = max_disappeared
+        self.max_distance = max_distance
+
+    def update(self, new_centroids: list) -> dict:
+        if not new_centroids:
+            for oid in list(self.disappeared):
+                self.disappeared[oid] += 1
+                if self.disappeared[oid] > self.max_disappeared:
+                    self._deregister(oid)
+            return self.centroids
+
+        if not self.centroids:
+            for c in new_centroids:
+                self._register(c)
+        else:
+            ids = list(self.centroids)
+            existing = [self.centroids[i] for i in ids]
+            used_ex: set[int] = set()
+            used_new: set[int] = set()
+
+            for ni, nc in enumerate(new_centroids):
+                best_j, best_d = -1, float('inf')
+                for ej, ec in enumerate(existing):
+                    if ej in used_ex:
+                        continue
+                    d = ((nc[0] - ec[0]) ** 2 + (nc[1] - ec[1]) ** 2) ** 0.5
+                    if d < best_d:
+                        best_d, best_j = d, ej
+                if best_j >= 0 and best_d < self.max_distance:
+                    oid = ids[best_j]
+                    self.centroids[oid] = nc
+                    self.disappeared[oid] = 0
+                    used_ex.add(best_j)
+                    used_new.add(ni)
+
+            for ej in range(len(existing)):
+                if ej not in used_ex:
+                    oid = ids[ej]
+                    self.disappeared[oid] += 1
+                    if self.disappeared[oid] > self.max_disappeared:
+                        self._deregister(oid)
+
+            for ni, nc in enumerate(new_centroids):
+                if ni not in used_new:
+                    self._register(nc)
+
+        return self.centroids
+
+    def check_crossings(self, line_pos: int, axis: str = 'y', direction: str = 'down') -> int:
+        count = 0
+        for oid, (cx, cy) in self.centroids.items():
+            pos  = cy if axis == 'y' else cx
+            side = 'before' if pos < line_pos else 'after'
+            prev = self.sides.get(oid)
+            if prev is not None and prev != side:
+                if direction == 'both':
+                    count += 1
+                elif direction in ('down', 'right') and prev == 'before':
+                    count += 1
+                elif direction in ('up', 'left') and prev == 'after':
+                    count += 1
+            self.sides[oid] = side
+        return count
+
+    def _register(self, c: tuple) -> None:
+        self.centroids[self.next_id] = c
+        self.disappeared[self.next_id] = 0
+        self.next_id += 1
+
+    def _deregister(self, oid: int) -> None:
+        del self.centroids[oid]
+        del self.disappeared[oid]
+        self.sides.pop(oid, None)
+
+
+# ── Processing (runs in background thread) ────────────────────────────────────
+def file_hash(path: str, size: int) -> str:
+    return hashlib.md5(f'{Path(path).name}:{size}'.encode()).hexdigest()[:16]
+
+
+def run_processing(video_path, company_id, device_id, line_pos, direction, token, progress_cb, log_cb, done_cb):
+    try:
+        cap    = cv2.VideoCapture(video_path)
+        total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps    = cap.get(cv2.CAP_PROP_FPS) or 30
+        width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        log_cb(f'Video: {Path(video_path).name}')
+        log_cb(f'  {width}x{height}  {fps:.0f}fps  {total} frames')
+        log_cb('Loading YOLO model...')
+
+        model   = YOLO(YOLO_MODEL)
+        tracker = CentroidTracker()
+        axis    = 'x' if direction in ('left', 'right') else 'y'
+        line    = int((width if axis == 'x' else height) * line_pos)
+
+        file_mtime  = os.path.getmtime(video_path)
+        record_date = datetime.fromtimestamp(file_mtime, tz=timezone.utc)
+
+        log_cb('Processing...')
+
+        people_count = 0
+        last_event   = ''
+        pending: list = []
+        daily: dict   = {}
+        frame_num     = 0
+        start_time    = time.time()
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame_num += 1
+            progress_cb(int(frame_num / total * 100), people_count)
+
+            if frame_num % YOLO_SKIP != 0:
+                continue
+
+            results   = model(frame, classes=[0], conf=YOLO_CONF, verbose=False)
+            centroids = [
+                ((int(b.xyxy[0][0]) + int(b.xyxy[0][2])) // 2,
+                 (int(b.xyxy[0][1]) + int(b.xyxy[0][3])) // 2)
+                for b in results[0].boxes
+            ]
+
+            tracker.update(centroids)
+            crossings = tracker.check_crossings(line, axis=axis, direction=direction)
+
+            if crossings > 0:
+                people_count += crossings
+                frame_dt = (
+                    record_date.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                    + frame_num / fps
+                )
+                ts_ms    = int(frame_dt * 1000)
+                date_key = datetime.fromtimestamp(frame_dt).strftime('%Y-%m-%d')
+                ts_label = datetime.fromtimestamp(frame_dt).strftime('%H:%M')
+                event_id = uuid.uuid4().hex[:8]
+                pending.append((event_id, ts_ms, 'Person counted', f'Crossed line · {ts_label} (from video)'))
+                daily[date_key] = daily.get(date_key, 0) + crossings
+                last_event = f'Person · {ts_label}'
+
+        cap.release()
+
+        elapsed = time.time() - start_time
+        log_cb(f'Done in {int(elapsed // 60)}m {int(elapsed % 60)}s — {people_count} crossings detected')
+        log_cb(f'Writing {len(pending)} events to Firebase...')
+
+        base = f'companies/{company_id}/devices/{device_id}'
+
+        for event_id, ts_ms, label, sublabel in pending:
+            fb_put(f'{base}/events/{event_id}', {
+                'id': event_id, 'timestamp': ts_ms,
+                'type': 'person', 'label': label, 'sublabel': sublabel,
+            }, token)
+
+        for date_key, count in daily.items():
+            path    = f'{base}/counts/{date_key}/total'
+            current = fb_get(path, token) or 0
+            fb_put(path, current + count, token)
+            log_cb(f'  {date_key}: {count} crossings')
+
+        fb_patch(f'{base}/stats', {'peopleCount': people_count, 'lastEvent': last_event}, token)
+
+        size  = os.path.getsize(video_path)
+        fhash = file_hash(video_path, size)
+        fb_put(f'{base}/processed/{fhash}', {
+            'filename': Path(video_path).name,
+            'size': size,
+            'processedAt': int(time.time() * 1000),
+            'vehicleCount': people_count,
+        }, token)
+
+        log_cb('Results are live in PiVision Analytics!')
+        done_cb(True, people_count)
+
+    except Exception as e:
+        log_cb(f'Error: {e}')
+        done_cb(False, 0)
+
+
+# ── GUI ────────────────────────────────────────────────────────────────────────
+class App(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+        self.title('PiVision Processor')
+        self.configure(bg=BG)
+        self.resizable(True, True)
+
+        self.session: dict | None = None
+        self.video_path: str | None = None
+        self._preview_frame = None
+        self._tk_img = None
+        self.line_pos = 0.5
+        self.direction = 'down'
+        self._processing = False
+        self._log_queue: queue.Queue = queue.Queue()
+
+        # Preview layout tracking (set after first draw)
+        self._px = self._py = 0
+        self._pw = PREVIEW_W
+        self._ph = PREVIEW_H
+
+        saved = load_session()
+        if saved and saved.get('refreshToken'):
+            self._try_restore_session(saved)
+        else:
+            self._show_signin()
+
+        self._poll_logs()
+
+    def _try_restore_session(self, saved: dict) -> None:
+        self._show_loading()
+
+        def attempt():
+            try:
+                tokens = fb_refresh(saved['refreshToken'])
+                saved['token'] = tokens['idToken']
+                saved['refreshToken'] = tokens['refreshToken']
+                save_session(saved)
+                self.session = saved
+                self.after(0, self._show_main)
+            except Exception:
+                clear_session()
+                self.after(0, self._show_signin)
+
+        threading.Thread(target=attempt, daemon=True).start()
+
+    def _clear(self) -> None:
+        for w in self.winfo_children():
+            w.destroy()
+
+    # ── Loading screen ─────────────────────────────────────────────────────────
+    def _show_loading(self) -> None:
+        self._clear()
+        self.geometry('420x180')
+        self.resizable(False, False)
+        f = tk.Frame(self, bg=BG)
+        f.pack(fill='both', expand=True)
+        tk.Label(f, text='PiVision', font=('Helvetica', 26, 'bold'), bg=BG, fg=TEXT).pack(pady=(40, 8))
+        tk.Label(f, text='Signing in...', font=('Helvetica', 12), bg=BG, fg=DIM).pack()
+
+    # ── Sign-in screen ─────────────────────────────────────────────────────────
+    def _show_signin(self) -> None:
+        self._clear()
+        self.geometry('420x400')
+        self.resizable(False, False)
+
+        outer = tk.Frame(self, bg=BG)
+        outer.pack(fill='both', expand=True, padx=48, pady=40)
+
+        tk.Label(outer, text='PiVision', font=('Helvetica', 28, 'bold'), bg=BG, fg=TEXT).pack()
+        tk.Label(outer, text='Video Processor', font=('Helvetica', 13), bg=BG, fg=DIM).pack(pady=(2, 28))
+
+        tk.Label(outer, text='Email', font=('Helvetica', 11), bg=BG, fg=DIM, anchor='w').pack(fill='x')
+        self._email_var = tk.StringVar()
+        tk.Entry(outer, textvariable=self._email_var, font=('Helvetica', 13),
+                 bg=BG2, fg=TEXT, insertbackground=TEXT, relief='flat', bd=8).pack(fill='x', pady=(2, 12), ipady=6)
+
+        tk.Label(outer, text='Password', font=('Helvetica', 11), bg=BG, fg=DIM, anchor='w').pack(fill='x')
+        self._pw_var = tk.StringVar()
+        pw_entry = tk.Entry(outer, textvariable=self._pw_var, font=('Helvetica', 13),
+                            bg=BG2, fg=TEXT, insertbackground=TEXT, relief='flat', bd=8, show='•')
+        pw_entry.pack(fill='x', pady=(2, 16), ipady=6)
+        pw_entry.bind('<Return>', lambda _: self._do_signin())
+
+        self._signin_err = tk.Label(outer, text='', font=('Helvetica', 11), bg=BG, fg=DANGER, wraplength=320)
+        self._signin_err.pack(fill='x', pady=(0, 8))
+
+        self._signin_btn = tk.Button(outer, text='Sign In', font=('Helvetica', 13, 'bold'),
+                                     bg=ACCENT, fg='white', relief='flat', pady=10,
+                                     cursor='hand2', command=self._do_signin)
+        self._signin_btn.pack(fill='x', ipady=4)
+
+    def _do_signin(self) -> None:
+        email    = self._email_var.get().strip()
+        password = self._pw_var.get()
+        if not email or not password:
+            self._signin_err.config(text='Enter your email and password.')
+            return
+
+        self._signin_btn.config(text='Signing in...', state='disabled')
+        self._signin_err.config(text='')
+
+        def attempt():
+            try:
+                auth  = fb_sign_in(email, password)
+                token = auth['idToken']
+                uid   = auth['localId']
+
+                user_data = fb_get(f'users/{uid}', token)
+                if not user_data:
+                    raise ValueError('User profile not found. Contact your admin.')
+
+                company_id   = user_data.get('company', '')
+                company_data = fb_get(f'companies/{company_id}', token) or {}
+                devices      = list((company_data.get('devices') or {}).keys())
+
+                session = {
+                    'token':        token,
+                    'refreshToken': auth.get('refreshToken', ''),
+                    'uid':          uid,
+                    'email':        email,
+                    'companyId':    company_id,
+                    'companyName':  company_data.get('name', company_id),
+                    'devices':      devices,
+                }
+                save_session(session)
+                self.session = session
+                self.after(0, self._show_main)
+
+            except Exception as e:
+                def reset():
+                    self._signin_btn.config(text='Sign In', state='normal')
+                    self._signin_err.config(text=str(e))
+                self.after(0, reset)
+
+        threading.Thread(target=attempt, daemon=True).start()
+
+    # ── Main screen ────────────────────────────────────────────────────────────
+    def _show_main(self) -> None:
+        self._clear()
+        self.geometry('800x740')
+        self.resizable(True, True)
+        s = self.session
+
+        # Header
+        hdr = tk.Frame(self, bg=BG2, padx=20, pady=14)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='PiVision Processor', font=('Helvetica', 15, 'bold'),
+                 bg=BG2, fg=TEXT).pack(side='left')
+        tk.Button(hdr, text='Sign Out', font=('Helvetica', 10),
+                  bg=BG3, fg=DIM, relief='flat', cursor='hand2',
+                  command=self._sign_out).pack(side='right')
+        tk.Label(hdr, text=s['email'], font=('Helvetica', 10),
+                 bg=BG2, fg=DIM).pack(side='right', padx=10)
+
+        # Company + device row
+        info = tk.Frame(self, bg=BG, padx=20, pady=12)
+        info.pack(fill='x')
+        tk.Label(info, text=f'Company:  {s["companyName"]}', font=('Helvetica', 12),
+                 bg=BG, fg=DIM).pack(side='left')
+        tk.Label(info, text='Device:', font=('Helvetica', 12), bg=BG, fg=DIM).pack(side='left', padx=(24, 6))
+
+        self._device_var = tk.StringVar(value=s['devices'][0] if s['devices'] else 'cam1')
+        if s['devices']:
+            om = tk.OptionMenu(info, self._device_var, *s['devices'])
+            om.config(bg=BG2, fg=TEXT, relief='flat', font=('Helvetica', 12), highlightthickness=0,
+                      activebackground=BG3, activeforeground=TEXT)
+            om['menu'].config(bg=BG2, fg=TEXT, activebackground=ACCENT, activeforeground='white')
+            om.pack(side='left')
+        else:
+            tk.Entry(info, textvariable=self._device_var, font=('Helvetica', 12),
+                     bg=BG2, fg=TEXT, insertbackground=TEXT, relief='flat', bd=6, width=12).pack(side='left')
+
+        tk.Frame(self, bg=BG3, height=1).pack(fill='x')
+
+        # Video picker
+        vpick = tk.Frame(self, bg=BG, padx=20, pady=14)
+        vpick.pack(fill='x')
+        tk.Button(vpick, text='Browse for Video', font=('Helvetica', 12),
+                  bg=ACCENT, fg='white', relief='flat', cursor='hand2', pady=6, padx=16,
+                  command=self._pick_video).pack(side='left')
+        self._video_label = tk.Label(vpick, text='No video selected', font=('Helvetica', 11),
+                                     bg=BG, fg=DIM)
+        self._video_label.pack(side='left', padx=14)
+
+        # Preview canvas
+        canvas_wrap = tk.Frame(self, bg=BG, padx=20)
+        canvas_wrap.pack(fill='x')
+        self._canvas = tk.Canvas(canvas_wrap, width=PREVIEW_W, height=PREVIEW_H,
+                                  bg='#111827', relief='flat',
+                                  highlightthickness=1, highlightbackground=BG3,
+                                  cursor='crosshair')
+        self._canvas.pack()
+        self._canvas.bind('<Button-1>', self._on_canvas_click)
+        self._draw_placeholder()
+
+        # Direction controls
+        ctrl = tk.Frame(self, bg=BG, padx=20, pady=10)
+        ctrl.pack(fill='x')
+        tk.Label(ctrl, text='Counting direction:', font=('Helvetica', 12), bg=BG, fg=DIM).pack(side='left')
+
+        self._dir_btns: dict[str, tk.Button] = {}
+        for label, val in [('↓ Down', 'down'), ('↑ Up', 'up'), ('← Left', 'left'), ('→ Right', 'right'), ('↕ Both', 'both')]:
+            b = tk.Button(ctrl, text=label, font=('Helvetica', 11), relief='flat',
+                          cursor='hand2', padx=10, pady=4,
+                          command=lambda v=val: self._set_direction(v))
+            b.pack(side='left', padx=3)
+            self._dir_btns[val] = b
+
+        self._line_label = tk.Label(ctrl, text='Line: 50%', font=('Helvetica', 11), bg=BG, fg=DIM)
+        self._line_label.pack(side='right')
+        self._update_dir_buttons()
+
+        tk.Frame(self, bg=BG3, height=1).pack(fill='x', pady=(6, 0))
+
+        # Run row
+        run_row = tk.Frame(self, bg=BG, padx=20, pady=14)
+        run_row.pack(fill='x')
+        self._run_btn = tk.Button(run_row, text='Process Video', font=('Helvetica', 13, 'bold'),
+                                   bg=SUCCESS, fg='white', relief='flat', pady=8, padx=24,
+                                   cursor='hand2', command=self._run)
+        self._run_btn.pack(side='left')
+        self._status_label = tk.Label(run_row, text='', font=('Helvetica', 11), bg=BG, fg=DIM)
+        self._status_label.pack(side='left', padx=16)
+
+        self._progress = ttk.Progressbar(self, mode='determinate', maximum=100)
+        self._progress.pack(fill='x', padx=20, pady=(0, 8))
+
+        # Log output
+        log_wrap = tk.Frame(self, bg=BG, padx=20, pady=0)
+        log_wrap.pack(fill='both', expand=True, pady=(0, 16))
+        scroll = tk.Scrollbar(log_wrap)
+        scroll.pack(side='right', fill='y')
+        self._log_text = tk.Text(log_wrap, font=('Menlo', 10), bg='#0d1117', fg=DIM,
+                                  relief='flat', state='disabled', yscrollcommand=scroll.set,
+                                  wrap='word', height=7)
+        self._log_text.pack(fill='both', expand=True)
+        scroll.config(command=self._log_text.yview)
+
+    # ── Preview ────────────────────────────────────────────────────────────────
+    def _draw_placeholder(self) -> None:
+        self._canvas.delete('all')
+        self._canvas.create_text(
+            PREVIEW_W // 2, PREVIEW_H // 2,
+            text='Select a video — click anywhere on the preview to set the counting line',
+            fill='#475569', font=('Helvetica', 12), width=400, justify='center',
+        )
+
+    def _pick_video(self) -> None:
+        path = filedialog.askopenfilename(
+            title='Select Video File',
+            filetypes=[('Video files', '*.mp4 *.mov *.mkv *.avi *.m4v'), ('All files', '*.*')],
+        )
+        if not path:
+            return
+        self.video_path = path
+        self._video_label.config(text=Path(path).name, fg=TEXT)
+        self._load_preview()
+
+    def _load_preview(self) -> None:
+        cap   = cv2.VideoCapture(self.video_path)
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, total // 2)
+        ret, frame = cap.read()
+        cap.release()
+        if not ret:
+            return
+        self._preview_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        self._redraw_preview()
+
+    def _redraw_preview(self) -> None:
+        if self._preview_frame is None:
+            return
+
+        h, w  = self._preview_frame.shape[:2]
+        scale = min(PREVIEW_W / w, PREVIEW_H / h)
+        nw, nh = int(w * scale), int(h * scale)
+        frame = cv2.resize(self._preview_frame, (nw, nh))
+
+        axis = 'x' if self.direction in ('left', 'right') else 'y'
+        if axis == 'y':
+            ly = int(nh * self.line_pos)
+            cv2.line(frame, (0, ly), (nw, ly), (239, 68, 68), 2)
+            cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%', (8, max(ly - 6, 14)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
+        else:
+            lx = int(nw * self.line_pos)
+            cv2.line(frame, (lx, 0), (lx, nh), (239, 68, 68), 2)
+            cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%', (max(lx + 4, 4), 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
+
+        padded = Image.new('RGB', (PREVIEW_W, PREVIEW_H), (13, 18, 30))
+        ox = (PREVIEW_W - nw) // 2
+        oy = (PREVIEW_H - nh) // 2
+        padded.paste(Image.fromarray(frame), (ox, oy))
+
+        self._px, self._py, self._pw, self._ph = ox, oy, nw, nh
+        self._tk_img = ImageTk.PhotoImage(padded)
+        self._canvas.delete('all')
+        self._canvas.create_image(0, 0, anchor='nw', image=self._tk_img)
+        self._canvas.create_text(PREVIEW_W - 8, PREVIEW_H - 8, anchor='se',
+                                  text='Click to move the counting line',
+                                  fill='#475569', font=('Helvetica', 10))
+        self._line_label.config(text=f'Line: {int(self.line_pos * 100)}%')
+
+    def _on_canvas_click(self, event: tk.Event) -> None:
+        if self._preview_frame is None:
+            return
+        axis = 'x' if self.direction in ('left', 'right') else 'y'
+        if axis == 'y':
+            rel = (event.y - self._py) / max(self._ph, 1)
+        else:
+            rel = (event.x - self._px) / max(self._pw, 1)
+        self.line_pos = max(0.05, min(0.95, rel))
+        self._redraw_preview()
+
+    def _set_direction(self, val: str) -> None:
+        self.direction = val
+        self._update_dir_buttons()
+        self._redraw_preview()
+
+    def _update_dir_buttons(self) -> None:
+        for val, btn in self._dir_btns.items():
+            btn.config(bg=ACCENT if val == self.direction else BG3,
+                       fg='white' if val == self.direction else DIM)
+
+    # ── Run ────────────────────────────────────────────────────────────────────
+    def _run(self) -> None:
+        if not self.video_path:
+            messagebox.showwarning('No Video', 'Please select a video file first.')
+            return
+        if self._processing:
+            return
+
+        self._processing = True
+        self._run_btn.config(state='disabled', text='Processing...')
+        self._progress.configure(value=0)
+        self._status_label.config(text='', fg=DIM)
+
+        def progress_cb(pct: int, count: int) -> None:
+            def _update():
+                self._progress.configure(value=pct)
+                self._status_label.config(text=f'{pct}%  ·  {count} crossings')
+            self.after(0, _update)
+
+        def log_cb(msg: str) -> None:
+            self._log_queue.put(msg)
+
+        def done_cb(success: bool, count: int) -> None:
+            def _update():
+                self._processing = False
+                self._run_btn.config(state='normal', text='Process Video')
+                self._status_label.config(
+                    text=f'Done — {count} crossings written to dashboard' if success else 'Processing failed',
+                    fg=SUCCESS if success else DANGER,
+                )
+            self.after(0, _update)
+
+        threading.Thread(
+            target=run_processing,
+            args=(
+                self.video_path,
+                self.session['companyId'],
+                self._device_var.get(),
+                self.line_pos,
+                self.direction,
+                self.session['token'],
+                progress_cb, log_cb, done_cb,
+            ),
+            daemon=True,
+        ).start()
+
+    # ── Log polling ────────────────────────────────────────────────────────────
+    def _poll_logs(self) -> None:
+        while True:
+            try:
+                msg = self._log_queue.get_nowait()
+                if hasattr(self, '_log_text'):
+                    self._log_text.config(state='normal')
+                    self._log_text.insert('end', f'{msg}\n')
+                    self._log_text.see('end')
+                    self._log_text.config(state='disabled')
+            except queue.Empty:
+                break
+        self.after(100, self._poll_logs)
+
+    # ── Sign out ───────────────────────────────────────────────────────────────
+    def _sign_out(self) -> None:
+        clear_session()
+        self.session = None
+        self._show_signin()
+
+
+if __name__ == '__main__':
+    App().mainloop()
