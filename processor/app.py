@@ -64,7 +64,9 @@ def _session_path() -> Path:
 
 SESSION_FILE = _session_path()
 
-YOLO_MODEL = 'yolov8n.pt'
+# yolov8m.pt = Medium model — better accuracy for offline desktop processing
+# The live Pi camera uses yolov8n.pt (Nano) to stay real-time on limited hardware
+YOLO_MODEL = 'yolov8m.pt'
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
@@ -72,7 +74,7 @@ YOLO_SKIP  = 2
 # Release process: bump here → push dev → merge main → create GitHub Release tagged v{APP_VERSION}
 # GitHub Actions auto-builds Mac .dmg and Windows .exe and attaches them to the release.
 # Existing users see an "Update Now" popup on next launch which installs silently.
-APP_VERSION   = '1.1.0'
+APP_VERSION   = '1.1.1'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
