@@ -51,8 +51,9 @@ FIREBASE_API_KEY = 'AIzaSyAv8s0vErAwc3KZaRF55isbKTzhgjuwGNE'
 FIREBASE_DB_URL  = 'https://pivision-28ddb-default-rtdb.firebaseio.com'
 
 def _session_path() -> Path:
-    # Inside .app bundle → session dies when app is deleted
-    # Falls back to home dir when running as plain Python script
+    # Session lives INSIDE the .app bundle so deleting the app wipes the login.
+    # The auto-update code copies this file to the new .app before replacing it,
+    # so updating preserves the session (user stays logged in).
     if getattr(sys, 'frozen', False):
         exe = Path(sys.executable)
         if exe.parts[-2] == 'MacOS' and exe.parts[-3] == 'Contents':
@@ -67,6 +68,10 @@ YOLO_MODEL = 'yolov8n.pt'
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
+# ── Version — bump this before every release, must match the GitHub Release tag (minus the 'v')
+# Release process: bump here → push dev → merge main → create GitHub Release tagged v{APP_VERSION}
+# GitHub Actions auto-builds Mac .dmg and Windows .exe and attaches them to the release.
+# Existing users see an "Update Now" popup on next launch which installs silently.
 APP_VERSION   = '1.0.9'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
