@@ -480,22 +480,12 @@ class App(ctk.CTk):
         ctk.CTkLabel(hdr, text=s['email'], font=('Helvetica', 10),
                      text_color=DIM).pack(side='right')
 
-        # Company + device row
+        # Company row (no device picker — processor uses first device automatically)
+        self._device_var = ctk.StringVar(value=s['devices'][0] if s['devices'] else 'cam1')
         info = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         info.pack(fill='x', padx=20, pady=12)
         ctk.CTkLabel(info, text=f'Company:  {s["companyName"]}', font=('Helvetica', 12),
                      text_color=DIM).pack(side='left')
-        ctk.CTkLabel(info, text='Device:', font=('Helvetica', 12),
-                     text_color=DIM).pack(side='left', padx=(24, 6))
-
-        self._device_var = ctk.StringVar(value=s['devices'][0] if s['devices'] else 'cam1')
-        if s['devices']:
-            ctk.CTkOptionMenu(info, variable=self._device_var, values=s['devices'],
-                              fg_color=BG2, button_color=BG3, button_hover_color=ACCENT,
-                              text_color=TEXT, font=('Helvetica', 12)).pack(side='left')
-        else:
-            ctk.CTkEntry(info, textvariable=self._device_var, font=('Helvetica', 12),
-                         fg_color=BG2, text_color=TEXT, width=120).pack(side='left')
 
         ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x')
 
@@ -519,9 +509,9 @@ class App(ctk.CTk):
         self._canvas.bind('<Button-1>', self._on_canvas_click)
         self._draw_placeholder()
 
-        # Direction controls
+        # Direction + position controls
         ctrl = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        ctrl.pack(fill='x', padx=20, pady=10)
+        ctrl.pack(fill='x', padx=20, pady=(10, 4))
         ctk.CTkLabel(ctrl, text='Direction:', font=('Helvetica', 12),
                      text_color=DIM).pack(side='left')
 
@@ -533,13 +523,23 @@ class App(ctk.CTk):
                               text_color=DIM, command=lambda v=val: self._set_direction(v))
             b.pack(side='left', padx=3)
             self._dir_btns[val] = b
-
-        self._line_label = ctk.CTkLabel(ctrl, text='Line: 50%', font=('Helvetica', 11),
-                                         text_color=DIM)
-        self._line_label.pack(side='right')
         self._update_dir_buttons()
 
-        ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x', pady=(6, 0))
+        # Line position slider
+        pos_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        pos_row.pack(fill='x', padx=20, pady=(0, 6))
+        ctk.CTkLabel(pos_row, text='Position:', font=('Helvetica', 12),
+                     text_color=DIM).pack(side='left')
+        self._line_label = ctk.CTkLabel(pos_row, text='50%', font=('Helvetica', 12, 'bold'),
+                                         text_color=TEXT, width=40)
+        self._line_label.pack(side='right')
+        self._slider = ctk.CTkSlider(pos_row, from_=5, to=95, number_of_steps=90,
+                                      fg_color=BG3, progress_color=ACCENT, button_color=ACCENT,
+                                      button_hover_color='#2563eb', command=self._on_slider)
+        self._slider.set(50)
+        self._slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
+
+        ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x', pady=(2, 0))
 
         # Run row
         run_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
@@ -628,9 +628,13 @@ class App(ctk.CTk):
         self._canvas.delete('all')
         self._canvas.create_image(0, 0, anchor='nw', image=self._tk_img)
         self._canvas.create_text(PREVIEW_W - 8, PREVIEW_H - 8, anchor='se',
-                                  text='Click to move the counting line',
+                                  text='Click or use slider to move the counting line',
                                   fill='#475569', font=('Helvetica', 10))
-        self._line_label.configure(text=f'Line: {int(self.line_pos * 100)}%')
+
+    def _on_slider(self, val: float) -> None:
+        self.line_pos = val / 100
+        self._line_label.configure(text=f'{int(val)}%')
+        self._redraw_preview()
 
     def _on_canvas_click(self, event: tk.Event) -> None:
         if self._preview_frame is None:
@@ -639,6 +643,8 @@ class App(ctk.CTk):
         rel  = ((event.y - self._py) / max(self._ph, 1) if axis == 'y'
                 else (event.x - self._px) / max(self._pw, 1))
         self.line_pos = max(0.05, min(0.95, rel))
+        self._slider.set(self.line_pos * 100)
+        self._line_label.configure(text=f'{int(self.line_pos * 100)}%')
         self._redraw_preview()
 
     def _set_direction(self, val: str) -> None:
