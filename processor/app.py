@@ -730,14 +730,37 @@ class App(ctk.CTk):
         if self._processing:
             return
 
-        # Duplicate check — stored at company level so it catches re-runs under any location
-        size      = os.path.getsize(self.video_path)
-        fhash     = file_hash(self.video_path, size)
-        dup_path  = f'companies/{self.session["companyId"]}/processed/{fhash}'
+        # Duplicate check — looks at company level (new) AND all device paths (old records)
+        size    = os.path.getsize(self.video_path)
+        fhash   = file_hash(self.video_path, size)
+        cid     = self.session['companyId']
+        token   = self.session['token']
+        previous = None
+
+        # New path (company-level)
         try:
-            previous = fb_get(dup_path, self.session['token'])
-        except Exception:
-            previous = None
+            result = fb_get(f'companies/{cid}/processed/{fhash}', token)
+            if isinstance(result, dict):
+                previous = result
+                print(f'[Dup] Found at company level: {result}')
+        except Exception as e:
+            print(f'[Dup] Company-level check failed: {e}')
+
+        # Old path (per-device) — backward compat with records written before this update
+        if not previous:
+            for loc in self._existing_locations:
+                try:
+                    result = fb_get(f'companies/{cid}/devices/{loc}/processed/{fhash}', token)
+                    if isinstance(result, dict):
+                        result.setdefault('location', loc)
+                        previous = result
+                        print(f'[Dup] Found at device level ({loc}): {result}')
+                        break
+                except Exception:
+                    pass
+
+        if not previous:
+            print(f'[Dup] No existing record found for hash {fhash}')
 
         if previous and isinstance(previous, dict):
             prev_date     = datetime.fromtimestamp(
