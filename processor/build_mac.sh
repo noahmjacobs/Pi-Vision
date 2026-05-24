@@ -3,10 +3,10 @@ set -e
 cd "$(dirname "$0")"
 
 echo "==> Installing build dependencies..."
-pip install pyinstaller
+pip3 install pyinstaller
 
 echo "==> Building PiVision.app..."
-pyinstaller --noconfirm PiVision.spec
+python3 -m PyInstaller --noconfirm PiVision.spec
 
 echo "==> Creating PiVision-mac.dmg..."
 hdiutil create \
