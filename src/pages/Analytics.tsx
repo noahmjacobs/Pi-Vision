@@ -28,31 +28,61 @@ function DonutChart({ slices, total }: {
   slices: { label: string; value: number; color: string }[]
   total: number
 }) {
-  const size = 130
+  const [hovered, setHovered] = useState<number | null>(null)
+  const size        = 130
   const strokeWidth = 24
-  const r = (size - strokeWidth) / 2
-  const circ = 2 * Math.PI * r
-  let cursor = 0
+  const r           = (size - strokeWidth) / 2
+  const circ        = 2 * Math.PI * r
+  let cursor        = 0
+
+  const built = slices.map((sl, i) => {
+    const frac  = sl.value / total
+    const dash  = frac * circ
+    const start = cursor
+    cursor += frac
+    return { sl, i, dash, start }
+  })
+
+  const tip = hovered !== null ? slices[hovered] : null
 
   return (
-    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
-      {total === 0 ? (
-        <circle cx={size/2} cy={size/2} r={r} fill="none"
-          stroke="rgba(0,0,0,0.08)" strokeWidth={strokeWidth} />
-      ) : slices.map((sl, i) => {
-        const frac  = sl.value / total
-        const dash  = frac * circ
-        const start = cursor
-        cursor += frac
-        return (
-          <circle key={i} cx={size/2} cy={size/2} r={r} fill="none"
-            stroke={sl.color} strokeWidth={strokeWidth}
+    <div style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        {total === 0 ? (
+          <circle cx={size/2} cy={size/2} r={r} fill="none"
+            stroke="rgba(0,0,0,0.08)" strokeWidth={strokeWidth} />
+        ) : built.map(({ sl, i, dash, start }) => (
+          <circle
+            key={i}
+            cx={size/2} cy={size/2} r={r} fill="none"
+            stroke={sl.color}
+            strokeWidth={hovered === i ? strokeWidth + 5 : strokeWidth}
             strokeDasharray={`${dash} ${circ}`}
             strokeDashoffset={-(start * circ) + circ * 0.25}
+            style={{ cursor: 'pointer', transition: 'stroke-width 0.15s' }}
+            onMouseEnter={() => setHovered(i)}
+            onMouseLeave={() => setHovered(null)}
           />
-        )
-      })}
-    </svg>
+        ))}
+      </svg>
+      {tip && (
+        <div style={{
+          position: 'absolute', top: '50%', left: '50%',
+          transform: 'translate(-50%, -50%) rotate(0deg)',
+          pointerEvents: 'none', textAlign: 'center', width: 90,
+        }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: tip.color, lineHeight: 1 }}>
+            {tip.value}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.2 }}>
+            {tip.label}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+            {total > 0 ? Math.round(tip.value / total * 100) : 0}%
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
