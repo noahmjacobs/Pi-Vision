@@ -661,6 +661,29 @@ class App(ctk.CTk):
         if self._processing:
             return
 
+        # Duplicate check before starting
+        size  = os.path.getsize(self.video_path)
+        fhash = file_hash(self.video_path, size)
+        base  = f'companies/{self.session["companyId"]}/devices/{self._device_var.get()}'
+        try:
+            previous = fb_get(f'{base}/processed/{fhash}', self.session['token'])
+        except Exception:
+            previous = None
+
+        if previous and isinstance(previous, dict):
+            prev_date = datetime.fromtimestamp(
+                previous.get('processedAt', 0) / 1000
+            ).strftime('%B %d, %Y at %H:%M')
+            prev_count = previous.get('vehicleCount', 0)
+            answer = messagebox.askyesno(
+                'Already Processed',
+                f'"{Path(self.video_path).name}" was already processed on {prev_date} '
+                f'and found {prev_count} crossings.\n\nProcess again? '
+                f'(This will add duplicate counts to the dashboard.)',
+            )
+            if not answer:
+                return
+
         self._processing = True
         self._run_btn.configure(state='disabled', text='Processing...')
         self._progress.set(0)
