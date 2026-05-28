@@ -9,15 +9,16 @@ Pipeline per video:
   1. Detect + track vehicles frame-by-frame (YOLOv8 COCO)
   2. For each tracked vehicle, analyze the windshield region:
        - Count front-seat occupants (person detection)
-       - Check for phone use → driverDistracted flag
-       - Classify seatbelt status (see SEATBELT MODEL TODO below)
-  3. When vehicle exits frame, finalize and upload one DBVehicleEvent to Firebase
-  4. Update aggregate stats: totalVehicles, compliantVehicles, distractedVehicles
+       - Check for phone use -> driverDistracted flag
+       - Classify seatbelt status (requires seatbelt1.pt in processor/ folder)
+  3. When vehicle exits frame, check movement direction — skip if wrong direction
+  4. Finalize and upload one DBVehicleEvent to Firebase
+  5. Update aggregate stats: totalVehicles, compliantVehicles, distractedVehicles
 
 Firebase schema written:
-  companies/{companyId}/devices/{deviceId}/events/{id}  →  DBVehicleEvent
-  companies/{companyId}/devices/{deviceId}/stats         →  DBSeatbeltStats
-  companies/{companyId}/processed/{fhash}                →  duplicate-check record
+  companies/{companyId}/devices/{deviceId}/events/{id}  ->  DBVehicleEvent
+  companies/{companyId}/devices/{deviceId}/stats         ->  DBSeatbeltStats
+  companies/{companyId}/processed/{fhash}                ->  duplicate-check record
 """
 
 from __future__ import annotations
@@ -60,33 +61,27 @@ def file_hash(path: str, size: int) -> str:
 
 
 # ── COCO class IDs ─────────────────────────────────────────────────────────────
-COCO_VEHICLES = {2: 'car', 5: 'van', 7: 'truck'}  # car / bus→van / truck
+COCO_VEHICLES = {2: 'car', 5: 'van', 7: 'truck'}
 COCO_PERSON   = 0
-COCO_PHONE    = 67   # cell phone in COCO → distracted driver signal
+COCO_PHONE    = 67
 
 VEHICLE_CONF  = 0.40
 PERSON_CONF   = 0.30
 PHONE_CONF    = 0.35
-YOLO_SKIP     = 3    # analyze every 3rd frame for speed
+YOLO_SKIP     = 3
+
+# Minimum horizontal pixel movement to classify direction (avoids noise from parked cars)
+DIRECTION_THRESHOLD = 40
 
 
-# ── SEATBELT MODEL ─────────────────────────────────────────────────────────────
+# ── Seatbelt model ─────────────────────────────────────────────────────────────
 # Drop seatbelt1.pt into the processor/ folder to enable live seatbelt detection.
 # Without it the code falls back to returning 'none' (stub).
-#
-# Model trained on Roboflow — class 0 = "Seat-Belt Detection" (seatbelt present).
-# To retrain or download: app.roboflow.com → seatbelt project → Models → Download Weights
-#   → "Deploy on my own infrastructure" → download .pt → rename to seatbelt1.pt
-
 SEATBELT_MODEL_PATH = Path(__file__).parent / 'seatbelt1.pt'
 
 def detect_seatbelts(frame, vehicle_bbox, occupants: int) -> str:
-    """
-    Returns seatbelt status: 'both' | 'driver' | 'passenger' | 'none'
-    Uses seatbelt1.pt if present, otherwise returns stub 'none'.
-    """
+    """Returns 'both' | 'driver' | 'passenger' | 'none'. Uses seatbelt1.pt if present."""
     if SEATBELT_MODEL_PATH.exists():
-        # Real model is available — use it
         try:
             model  = YOLO(str(SEATBELT_MODEL_PATH))
             crop   = windshield_crop(frame, vehicle_bbox)
@@ -115,7 +110,6 @@ def detect_seatbelts(frame, vehicle_bbox, occupants: int) -> str:
             return 'none'
         except Exception:
             pass
-    # ── Stub fallback ──────────────────────────────────────────────────────────
     return 'none'
 
 
@@ -139,7 +133,6 @@ def classify_vehicle_type(coco_class: int, x1, y1, x2, y2) -> str:
         return 'truck'
     if coco_class == 5:
         return 'van'
-    # Distinguish SUV from car: SUV tends to be taller relative to width
     w, h = x2 - x1, y2 - y1
     if w > 0 and h / w > 0.65 and w * h > 15000:
         return 'suv'
@@ -154,38 +147,47 @@ class VehicleRecord:
         self.belt_votes:    list[str] = []
         self.distracted:    int       = 0
         self.frame_count:   int       = 0
+        self.first_cx:      float | None = None
+        self.last_cx:       float        = 0.0
 
-    def add(self, vtype: str, occupants: int, seatbelts: str, phone: bool) -> None:
+    def add(self, vtype: str, occupants: int, seatbelts: str, phone: bool, cx: float = 0.0) -> None:
         self.type_votes.append(vtype)
         self.occupant_vals.append(occupants)
         self.belt_votes.append(seatbelts)
         if phone:
             self.distracted += 1
         self.frame_count += 1
+        if self.first_cx is None:
+            self.first_cx = cx
+        self.last_cx = cx
 
     def finalize(self) -> dict | None:
         if self.frame_count < 2:
-            return None   # too few frames — skip as false positive
+            return None
         vtype     = Counter(self.type_votes).most_common(1)[0][0]
         occupants = max(1, min(2, round(
             sum(self.occupant_vals) / len(self.occupant_vals)
         )))
         seatbelts = Counter(self.belt_votes).most_common(1)[0][0] if self.belt_votes else 'none'
         distracted = self.frame_count > 0 and (self.distracted / self.frame_count) > 0.25
+        dx = self.last_cx - (self.first_cx if self.first_cx is not None else self.last_cx)
+        if dx > DIRECTION_THRESHOLD:
+            movement = 'right'
+        elif dx < -DIRECTION_THRESHOLD:
+            movement = 'left'
+        else:
+            movement = 'stationary'
         return {
             'vehicleType':      vtype,
             'occupants':        occupants,
             'seatbelts':        seatbelts,
             'driverDistracted': bool(distracted),
+            'movement':         movement,
         }
 
 
 # ── Minimal centroid tracker ───────────────────────────────────────────────────
 class VehicleTracker:
-    """
-    Tracks vehicle centroids across frames and accumulates per-vehicle readings.
-    When a vehicle disappears (exits frame), finalizes its record and returns it.
-    """
     def __init__(self, max_disappeared: int = 20, max_distance: int = 120):
         self.next_id        = 0
         self.centroids:     dict[int, tuple] = {}
@@ -195,12 +197,6 @@ class VehicleTracker:
         self.max_distance    = max_distance
 
     def update(self, detections: list[tuple]) -> tuple[set[int], list[dict]]:
-        """
-        detections: list of (cx, cy, vtype, occupants, seatbelts, phone_detected, bbox)
-        Returns:
-          active_ids:  set of currently tracked IDs
-          finalized:   list of finalized vehicle result dicts (vehicles that just left frame)
-        """
         finalized: list[dict] = []
 
         if not detections:
@@ -215,10 +211,8 @@ class VehicleTracker:
                     del self.records[oid]
             return set(self.centroids.keys()), finalized
 
-        new_centroids = [(d[0], d[1]) for d in detections]
-
         if not self.centroids:
-            for i, (cx, cy, vtype, occ, belt, phone, bbox) in enumerate(detections):
+            for cx, cy, vtype, occ, belt, phone, bbox in detections:
                 self._register(cx, cy, vtype, occ, belt, phone)
         else:
             ids      = list(self.centroids)
@@ -239,7 +233,7 @@ class VehicleTracker:
                     self.centroids[oid]   = (cx, cy)
                     self.disappeared[oid] = 0
                     vtype, occ, belt, phone = detections[ni][2:6]
-                    self.records[oid].add(vtype, occ, belt, phone)
+                    self.records[oid].add(vtype, occ, belt, phone, cx)
                     used_ex.add(best_j)
                     used_new.add(ni)
 
@@ -265,12 +259,11 @@ class VehicleTracker:
         self.centroids[self.next_id]   = (cx, cy)
         self.disappeared[self.next_id] = 0
         rec = VehicleRecord()
-        rec.add(vtype, occ, belt, phone)
+        rec.add(vtype, occ, belt, phone, cx)
         self.records[self.next_id] = rec
         self.next_id += 1
 
     def flush(self) -> list[dict]:
-        """Finalize all remaining tracked vehicles at end of video."""
         results = []
         for oid in list(self.records):
             result = self.records[oid].finalize()
@@ -300,6 +293,7 @@ def run_seatbelt_processing(
     progress_cb,
     log_cb,
     done_cb,
+    vehicle_direction: str = 'both',
 ):
     try:
         cap   = cv2.VideoCapture(video_path)
@@ -308,6 +302,8 @@ def run_seatbelt_processing(
 
         log_cb(f'Video: {Path(video_path).name}')
         log_cb(f'  {int(cap.get(3))}x{int(cap.get(4))}  {fps:.0f}fps  {total} frames')
+        dir_label = {'right': 'left→right only', 'left': 'right→left only', 'both': 'both directions'}
+        log_cb(f'  Traffic direction filter: {dir_label.get(vehicle_direction, vehicle_direction)}')
         log_cb('Loading detection model...')
 
         import sys as _sys
@@ -323,13 +319,21 @@ def run_seatbelt_processing(
         vehicles_total      = 0
         vehicles_compliant  = 0
         vehicles_distracted = 0
+        vehicles_skipped    = 0
         pending_events:     list[dict] = []
         frame_num           = 0
         last_event          = ''
 
         def process_finalized(finalized_list: list[dict]) -> None:
-            nonlocal vehicles_total, vehicles_compliant, vehicles_distracted, last_event
+            nonlocal vehicles_total, vehicles_compliant, vehicles_distracted, vehicles_skipped, last_event
             for result in finalized_list:
+                # Direction filter — skip vehicles moving the wrong way
+                if vehicle_direction != 'both':
+                    movement = result.get('movement', 'stationary')
+                    if movement != vehicle_direction:
+                        vehicles_skipped += 1
+                        continue
+
                 vehicles_total += 1
                 compliant = is_compliant(result)
                 if compliant:
@@ -346,17 +350,19 @@ def run_seatbelt_processing(
                 event_id = uuid.uuid4().hex[:8]
 
                 event = {
-                    'id':              event_id,
-                    'timestamp':       ts_ms,
-                    'type':            'vehicle',
-                    'vehicleType':     result['vehicleType'],
-                    'occupants':       result['occupants'],
-                    'seatbelts':       result['seatbelts'],
+                    'id':               event_id,
+                    'timestamp':        ts_ms,
+                    'type':             'vehicle',
+                    'vehicleType':      result['vehicleType'],
+                    'occupants':        result['occupants'],
+                    'seatbelts':        result['seatbelts'],
                     'driverDistracted': result['driverDistracted'],
                 }
                 pending_events.append(event)
                 last_event = f'{result["vehicleType"].title()} · {ts_label}'
-                log_cb(f'  Vehicle: {result["vehicleType"]}, {result["occupants"]} occ, belts={result["seatbelts"]}, dist={result["driverDistracted"]}')
+                log_cb(f'  Vehicle: {result["vehicleType"]}, {result["occupants"]} occ, '
+                       f'belts={result["seatbelts"]}, dist={result["driverDistracted"]}, '
+                       f'dir={result["movement"]}')
 
         while True:
             ret, frame = cap.read()
@@ -375,10 +381,8 @@ def run_seatbelt_processing(
                 verbose=False,
             )
 
-            boxes  = results[0].boxes
-            h_img, w_img = frame.shape[:2]
+            boxes = results[0].boxes
 
-            # Collect vehicle detections this frame
             vehicle_boxes: list[tuple] = []
             person_boxes:  list[tuple] = []
             phone_boxes:   list[tuple] = []
@@ -401,9 +405,8 @@ def run_seatbelt_processing(
 
                 vtype = classify_vehicle_type(vcls, vx1, vy1, vx2, vy2)
 
-                # Count occupants: persons whose centroid falls in upper vehicle region
-                vh   = vy2 - vy1
-                occ  = 0
+                vh  = vy2 - vy1
+                occ = 0
                 for (px1, py1, px2, py2) in person_boxes:
                     pcx = (px1 + px2) / 2
                     pcy = (py1 + py2) / 2
@@ -411,7 +414,6 @@ def run_seatbelt_processing(
                         occ += 1
                 occ = max(1, min(2, occ)) if occ > 0 else 1
 
-                # Distracted: phone detected near driver (left half of vehicle)
                 phone_detected = False
                 driver_x_max   = vx1 + (vx2 - vx1) * 0.55
                 for (phx1, phy1, phx2, phy2) in phone_boxes:
@@ -430,14 +432,13 @@ def run_seatbelt_processing(
 
         cap.release()
 
-        # Flush any vehicles still in frame at end of video
         final_flush = tracker.flush()
         process_finalized(final_flush)
 
-        log_cb(f'Complete — {vehicles_total} vehicles processed')
+        log_cb(f'Complete — {vehicles_total} vehicles counted, {vehicles_skipped} skipped (wrong direction)')
         if vehicles_total > 0:
             pct = int(vehicles_compliant / vehicles_total * 100)
-            log_cb(f'  Compliance: {pct}%  ({vehicles_compliant}/{vehicles_total} compliant)')
+            log_cb(f'  Compliance: {pct}%  ({vehicles_compliant}/{vehicles_total})')
             log_cb(f'  Distracted: {vehicles_distracted}')
 
         log_cb(f'Writing {len(pending_events)} events to Firebase...')
@@ -452,7 +453,6 @@ def run_seatbelt_processing(
             'lastEvent':          last_event,
         }, token)
 
-        # Duplicate detection record
         size  = os.path.getsize(video_path)
         fhash = file_hash(video_path, size)
         fb_put(f'companies/{company_id}/processed/{fhash}', {
