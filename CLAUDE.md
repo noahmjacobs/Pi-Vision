@@ -50,8 +50,8 @@ See `CHANGELOG.md` at the root for a full history of what was built each session
 ---
 
 ## Current Version
-`APP_VERSION = '1.0.16'` in `processor/app.py`
-Latest release on GitHub: v1.0.16
+`APP_VERSION = '1.0.17'` in `processor/app.py`
+Latest release on GitHub: v1.0.17
 
 ---
 

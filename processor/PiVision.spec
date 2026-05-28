@@ -22,6 +22,11 @@ if not os.path.exists(_model_path):
     )
 datas += [(_model_path, '.')]
 
+# Bundle ByteTrack config so the tracker works in the frozen app
+_tracker_path = os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'bytetrack.yaml')
+if os.path.exists(_tracker_path):
+    datas += [(_tracker_path, '.')]
+
 # Bundle seatbelt model if present in processor/ directory
 _seatbelt_path = os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'seatbelt1.pt')
 if os.path.exists(_seatbelt_path):

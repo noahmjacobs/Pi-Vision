@@ -112,19 +112,15 @@ YOLO_MODEL = _yolo_model_path()
 
 
 def _tracker_config_path() -> str:
-    """Find bytetrack.yaml whether running frozen (.app/.exe) or from source."""
+    """Find bytetrack.yaml — bundled copy next to app.py is the most reliable source."""
     if getattr(sys, 'frozen', False):
-        # Bundled by PyInstaller via collect_data_files('ultralytics')
-        bundled = Path(sys._MEIPASS) / 'ultralytics' / 'cfg' / 'trackers' / 'bytetrack.yaml'
+        bundled = Path(sys._MEIPASS) / 'bytetrack.yaml'
         if bundled.exists():
             return str(bundled)
-    try:
-        import ultralytics
-        pkg = Path(ultralytics.__file__).parent / 'cfg' / 'trackers' / 'bytetrack.yaml'
-        if pkg.exists():
-            return str(pkg)
-    except Exception:
-        pass
+    # When running from source, use the copy in the processor/ folder next to app.py
+    local = Path(__file__).parent / 'bytetrack.yaml'
+    if local.exists():
+        return str(local)
     return 'bytetrack.yaml'
 
 TRACKER_CONFIG = _tracker_config_path()
@@ -134,7 +130,7 @@ YOLO_SKIP  = 2
 
 # ── Version ───────────────────────────────────────────────────────────────────────────────────
 # Bump before every release. Must match the GitHub Release tag (minus the 'v').
-APP_VERSION  = '1.0.16'
+APP_VERSION  = '1.0.17'
 GITHUB_REPO  = 'noahmjacobs/pi-vision'
 
 
