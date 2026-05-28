@@ -74,43 +74,43 @@ YOLO_SKIP     = 3
 DIRECTION_THRESHOLD = 40
 
 
-# ── Seatbelt model ─────────────────────────────────────────────────────────────
-# Drop seatbelt1.pt into the processor/ folder to enable live seatbelt detection.
-# Without it the code falls back to returning 'none' (stub).
-SEATBELT_MODEL_PATH = Path(__file__).parent / 'seatbelt1.pt'
-
-def detect_seatbelts(frame, vehicle_bbox, occupants: int) -> str:
-    """Returns 'both' | 'driver' | 'passenger' | 'none'. Uses seatbelt1.pt if present."""
-    if SEATBELT_MODEL_PATH.exists():
-        try:
-            model  = YOLO(str(SEATBELT_MODEL_PATH))
-            crop   = windshield_crop(frame, vehicle_bbox)
-            if crop is None:
-                return 'none'
-            h, w   = crop.shape[:2]
-            d_crop = crop[:, :w // 2]
-            p_crop = crop[:, w // 2:]
-
-            def has_belt(region):
-                if region.size == 0:
-                    return False
-                res = model(region, conf=0.35, verbose=False)
-                return any(int(b.cls) == 0 for b in res[0].boxes)
-
-            driver_belted = has_belt(d_crop)
-            if occupants == 1:
-                return 'driver' if driver_belted else 'none'
-            passenger_belted = has_belt(p_crop)
-            if driver_belted and passenger_belted:
-                return 'both'
-            if driver_belted:
-                return 'driver'
-            if passenger_belted:
-                return 'passenger'
-            return 'none'
-        except Exception:
-            pass
-    return 'none'
+# ── Seatbelt model (DISABLED — testing base YOLO vehicle/occupant detection) ──
+# Uncomment below and drop seatbelt1.pt into processor/ to re-enable.
+#
+# SEATBELT_MODEL_PATH = Path(__file__).parent / 'seatbelt1.pt'
+#
+# def detect_seatbelts(frame, vehicle_bbox, occupants: int) -> str:
+#     """Returns 'both' | 'driver' | 'passenger' | 'none'. Uses seatbelt1.pt if present."""
+#     if SEATBELT_MODEL_PATH.exists():
+#         try:
+#             model  = YOLO(str(SEATBELT_MODEL_PATH))
+#             crop   = windshield_crop(frame, vehicle_bbox)
+#             if crop is None:
+#                 return 'none'
+#             h, w   = crop.shape[:2]
+#             d_crop = crop[:, :w // 2]
+#             p_crop = crop[:, w // 2:]
+#
+#             def has_belt(region):
+#                 if region.size == 0:
+#                     return False
+#                 res = model(region, conf=0.35, verbose=False)
+#                 return any(int(b.cls) == 0 for b in res[0].boxes)
+#
+#             driver_belted = has_belt(d_crop)
+#             if occupants == 1:
+#                 return 'driver' if driver_belted else 'none'
+#             passenger_belted = has_belt(p_crop)
+#             if driver_belted and passenger_belted:
+#                 return 'both'
+#             if driver_belted:
+#                 return 'driver'
+#             if passenger_belted:
+#                 return 'passenger'
+#             return 'none'
+#         except Exception:
+#             pass
+#     return 'none'
 
 
 # ── Windshield crop helper ─────────────────────────────────────────────────────
@@ -423,7 +423,8 @@ def run_seatbelt_processing(
                         phone_detected = True
                         break
 
-                seatbelts = detect_seatbelts(frame, (vx1, vy1, vx2, vy2), occ)
+                # Seatbelt detection disabled — uncomment detect_seatbelts() above to re-enable
+                seatbelts = 'none'
 
                 detections.append((cx, cy, vtype, occ, seatbelts, phone_detected, (vx1, vy1, vx2, vy2)))
 
