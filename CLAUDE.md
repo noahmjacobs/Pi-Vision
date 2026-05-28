@@ -15,7 +15,7 @@
 
 - **Version format: 1.0.x — the middle number stays 0 until the first real paying client.**
 - **NEVER suggest bumping the middle number (e.g. 1.0.x → 1.1.x). Not until the user explicitly says so.**
-- Only bump the last number (patch) for each release: 1.0.11 → 1.0.12 → 1.0.13 etc.
+- Only bump the last number (patch) for each release: 1.0.12 → 1.0.13 → 1.0.14 etc.
 
 Git workflow:
 ```
@@ -32,18 +32,30 @@ git checkout main && git merge dev && git push origin main && git checkout dev
 
 ---
 
+## ⚠️ VERSION BUMP — ONE FILE, ONE LINE
+
+When releasing a new version, there is **exactly one place** to change:
+
+**`processor/app.py`** — find this line near the top and increment the patch number:
+```python
+APP_VERSION   = '1.0.13'  # ← change this
+```
+That's it. Nothing else needs to change.
+
+---
+
+## Current Version
+`APP_VERSION = '1.0.13'` in `processor/app.py`  
+Latest release on GitHub: v1.0.13 (user needs to create GitHub release — tag `v1.0.13`, title `PiVision Processor v1.0.13`, no files attached)
+
+---
+
 ## Repo is currently PUBLIC
 Everything (code, Firebase config, processor) is in a public repo for now.
 Before launch as a real product, move to private and handle:
 - Firebase config exposure (move to env vars / backend proxy)
 - GitHub release assets (private repos require auth to download — need signed URLs or a public CDN)
 - API key rotation
-
----
-
-## Current Version
-`APP_VERSION = '1.0.11'` in `processor/app.py`
-Latest release on GitHub: v1.0.10 (v1.0.11 built and on main — user needs to create GitHub release)
 
 ---
 
@@ -104,6 +116,7 @@ Roadside camera setup: camera on side of road or elevated position, looking at f
 - Uploads correct DBVehicleEvent schema to Firebase: vehicleType, occupants, seatbelts, driverDistracted
 - Updates DBSeatbeltStats: totalVehicles, compliantVehicles, distractedVehicles
 - Seatbelt detection: live if `seatbelt1.pt` is present in processor/ folder, stub 'none' if not
+- Vehicle log grouped by upload session (uploadId stamped on every event)
 
 **Seatbelt model status:**
 - Trained on Roboflow — "seatbelt 1" model, ID: seatbelt-axfll-80vfq/1
@@ -149,16 +162,16 @@ Outputs per-vehicle results + saves `_annotated.mp4` with bounding boxes drawn. 
 
 ### How releases work
 1. Make all changes on `dev` branch
-2. Bump `APP_VERSION` in `processor/app.py` (e.g. `'1.0.11'` → `'1.0.12'`) — patch only, never bump middle number
+2. **Bump `APP_VERSION` in `processor/app.py`** — that's the only file (see VERSION BUMP section above)
 3. Push to dev: `git push origin dev`
 4. Merge to main (only when user says so): `git checkout main && git merge dev && git push origin main && git checkout dev`
 5. Create a new GitHub Release at github.com/noahmjacobs/pi-vision/releases/new
-   - Tag: `v1.0.12` (must match APP_VERSION with a `v` prefix)
-   - Title: `PiVision Processor v1.0.12`
+   - Tag: `v1.0.14` (must match APP_VERSION with a `v` prefix)
+   - Title: `PiVision Processor v1.0.14`
    - **Do NOT attach any files** — GitHub Actions builds them automatically
 6. GitHub Actions spins up Mac + Windows cloud machines, builds both binaries, attaches them (~15-20 min)
 7. Existing users see "Update Available" popup next time they open the app
-8. They click "Update Now" — downloads, installs, relaunches automatically (no step-through loop since v1.0.11)
+8. They click "Update Now" — downloads, installs, relaunches automatically
 
 ### Download URLs (never change)
 - Mac: `https://github.com/noahmjacobs/pi-vision/releases/latest/download/PiVision-mac.dmg`
@@ -202,7 +215,7 @@ Mode is set in the Admin panel when creating a company.
 
 ### Immediate
 - [ ] Commit seatbelt1.pt to processor/ folder: `git add processor/seatbelt1.pt && git commit -m "add seatbelt model" && git push origin dev`
-- [ ] Create GitHub release v1.0.11 (merge dev → main first, then user creates release on GitHub)
+- [ ] Create GitHub release v1.0.13 (tag `v1.0.13`, title `PiVision Processor v1.0.13`, no files attached)
 - [ ] Record roadside video, run `python3 test_detection.py video.mp4` to validate vehicle detection
 
 ### Seatbelt Model
