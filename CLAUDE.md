@@ -103,7 +103,7 @@ Roadside camera setup: camera on side of road or elevated position, looking at f
 - Per-vehicle finalization via majority vote when vehicle exits frame
 - Uploads correct DBVehicleEvent schema to Firebase: vehicleType, occupants, seatbelts, driverDistracted
 - Updates DBSeatbeltStats: totalVehicles, compliantVehicles, distractedVehicles
-- Seatbelt detection: live if `seatbelt.pt` is present in processor/ folder, stub 'none' if not
+- Seatbelt detection: live if `seatbelt1.pt` is present in processor/ folder, stub 'none' if not
 
 **Seatbelt model status:**
 - Trained on Roboflow — "seatbelt 1" model, ID: seatbelt-axfll-80vfq/1
@@ -111,7 +111,7 @@ Roadside camera setup: camera on side of road or elevated position, looking at f
 - Architecture: Roboflow 3.0 Fast, trained from vehicle-detection checkpoint
 - Metrics: mAP@50 58.8%, Precision 71.2%, Recall 46.3%
 - 2,083 images (mixed interior/exterior footage)
-- User downloaded weights file — needs to be saved as `processor/seatbelt.pt` and committed
+- User downloaded weights file and saved as `processor/seatbelt1.pt` — commit this file to dev
 - Class 0 = "Seat-Belt Detection" (seatbelt present) — detect_seatbelts() in process_seatbelt.py already handles class 0
 
 **Accuracy limitations:**
@@ -201,8 +201,8 @@ Mode is set in the Admin panel when creating a company.
 ## What Still Needs To Be Done
 
 ### Immediate
-- [ ] Commit seatbelt.pt to processor/ folder (user downloaded it from Roboflow as d8236e72-weights.pt — rename to seatbelt.pt)
-- [ ] Create GitHub release v1.0.11 (code is ready on main, user creates release on GitHub)
+- [ ] Commit seatbelt1.pt to processor/ folder: `git add processor/seatbelt1.pt && git commit -m "add seatbelt model" && git push origin dev`
+- [ ] Create GitHub release v1.0.11 (merge dev → main first, then user creates release on GitHub)
 - [ ] Record roadside video, run `python3 test_detection.py video.mp4` to validate vehicle detection
 
 ### Seatbelt Model
