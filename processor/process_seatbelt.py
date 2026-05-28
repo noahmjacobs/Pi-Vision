@@ -70,47 +70,20 @@ PHONE_CONF    = 0.35
 YOLO_SKIP     = 3    # analyze every 3rd frame for speed
 
 
-# ── SEATBELT MODEL — TODO ──────────────────────────────────────────────────────
-# Currently returns a stub value. To make seatbelt detection real:
+# ── SEATBELT MODEL ─────────────────────────────────────────────────────────────
+# Drop seatbelt1.pt into the processor/ folder to enable live seatbelt detection.
+# Without it the code falls back to returning 'none' (stub).
 #
-#   1. Download a YOLOv8 model trained on seatbelt data.
-#      Good free sources: roboflow.com/universe (search "seatbelt detection")
-#      Save the .pt file to: processor/seatbelt.pt
-#
-#   2. Check what class IDs your model uses. Common convention:
-#        class 0 = "with_seatbelt"
-#        class 1 = "without_seatbelt"
-#      Or it may detect the seatbelt strap itself as class 0.
-#
-#   3. Replace detect_seatbelts() below with real inference:
-#
-#        seatbelt_model = YOLO('seatbelt.pt')
-#
-#        def detect_seatbelts(frame, vehicle_bbox, occupants):
-#            crop = windshield_crop(frame, vehicle_bbox)
-#            if crop is None: return 'none'
-#            h, w = crop.shape[:2]
-#            driver_region    = crop[:, :w//2]
-#            passenger_region = crop[:, w//2:]
-#            driver_belted    = _region_has_seatbelt(driver_region)
-#            if occupants == 1:
-#                return 'driver' if driver_belted else 'none'
-#            passenger_belted = _region_has_seatbelt(passenger_region)
-#            if driver_belted and passenger_belted: return 'both'
-#            if driver_belted:    return 'driver'
-#            if passenger_belted: return 'passenger'
-#            return 'none'
-#
-#        def _region_has_seatbelt(region):
-#            results = seatbelt_model(region, conf=0.35, verbose=False)
-#            return any(int(b.cls) == 0 for b in results[0].boxes)
+# Model trained on Roboflow — class 0 = "Seat-Belt Detection" (seatbelt present).
+# To retrain or download: app.roboflow.com → seatbelt project → Models → Download Weights
+#   → "Deploy on my own infrastructure" → download .pt → rename to seatbelt1.pt
 
-SEATBELT_MODEL_PATH = Path(__file__).parent / 'seatbelt.pt'
+SEATBELT_MODEL_PATH = Path(__file__).parent / 'seatbelt1.pt'
 
 def detect_seatbelts(frame, vehicle_bbox, occupants: int) -> str:
     """
     Returns seatbelt status: 'both' | 'driver' | 'passenger' | 'none'
-    Currently a stub — see TODO above to wire in a real model.
+    Uses seatbelt1.pt if present, otherwise returns stub 'none'.
     """
     if SEATBELT_MODEL_PATH.exists():
         # Real model is available — use it
@@ -143,7 +116,6 @@ def detect_seatbelts(frame, vehicle_bbox, occupants: int) -> str:
         except Exception:
             pass
     # ── Stub fallback ──────────────────────────────────────────────────────────
-    # Returns 'none' (conservative) until seatbelt.pt is provided.
     return 'none'
 
 

@@ -78,10 +78,10 @@ YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
 # ── Version — bump this before every release, must match the GitHub Release tag (minus the 'v')
+# Versioning: 1.0.x — middle number stays 0 until first real paying client
 # Release process: bump here → push dev → merge main → create GitHub Release tagged v{APP_VERSION}
 # GitHub Actions auto-builds Mac .dmg and Windows .exe and attaches them to the release.
 # Existing users see an "Update Now" popup on next launch which installs silently.
-# Versioning: 1.0.x — middle number stays 0 until first real paying client
 APP_VERSION   = '1.0.11'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
@@ -324,7 +324,6 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
 
         size  = os.path.getsize(video_path)
         fhash = file_hash(video_path, size)
-        # Store at company level so duplicate check works across any location
         fb_put(f'companies/{company_id}/processed/{fhash}', {
             'filename':    Path(video_path).name,
             'size':        size,
@@ -368,7 +367,6 @@ class App(ctk.CTk):
 
         self._poll_logs()
         # Skip update check on first launch after an auto-update — prevents step-through loop
-        # where each intermediate version triggers another download before settling on latest.
         if '--just-updated' not in sys.argv:
             self.after(3000, self._check_for_update)
 
@@ -417,7 +415,6 @@ class App(ctk.CTk):
             try:
                 dmg_url = f'https://github.com/{GITHUB_REPO}/releases/latest/download/PiVision-mac.dmg'
 
-                # Locate current .app bundle
                 exe = Path(sys.executable)
                 if exe.parts[-2] == 'MacOS' and exe.parts[-3] == 'Contents':
                     app_path = exe.parent.parent.parent
@@ -454,11 +451,9 @@ class App(ctk.CTk):
                         raise RuntimeError('No .app found in DMG')
                     src_app = apps[0]
                     dst_app = install_dir / 'PiVision.app'
-                    # Carry session over so user stays logged in after update
                     old_session = app_path / 'Contents' / 'Resources' / 'session.json'
                     session_data = old_session.read_text() if old_session.exists() else None
 
-                    # ditto overwrites in-place — no delete needed, handles running app cleanly
                     subprocess.run(['ditto', str(src_app), str(dst_app)], check=True, capture_output=True)
                     subprocess.run(['xattr', '-cr', str(dst_app)], capture_output=True)
 
@@ -508,7 +503,6 @@ class App(ctk.CTk):
         for w in self.winfo_children():
             w.destroy()
 
-    # ── Loading ────────────────────────────────────────────────────────────────
     def _show_loading(self) -> None:
         self._clear()
         self.geometry('420x160')
@@ -520,20 +514,17 @@ class App(ctk.CTk):
         ctk.CTkLabel(f, text='Signing in...', font=('Helvetica', 12),
                      text_color=DIM).pack()
 
-    # ── Sign-in ────────────────────────────────────────────────────────────────
     def _show_signin(self) -> None:
         self._clear()
         self.geometry('420x460')
         self.resizable(False, False)
 
-        # Blue header bar
         hdr = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0, height=70)
         hdr.pack(fill='x')
         hdr.pack_propagate(False)
         ctk.CTkLabel(hdr, text='PiVision Processor', font=('Helvetica', 20, 'bold'),
                      text_color='white').pack(expand=True)
 
-        # Form card
         card = ctk.CTkFrame(self, fg_color=BG2, corner_radius=12)
         card.pack(fill='x', padx=28, pady=24)
 
@@ -589,16 +580,13 @@ class App(ctk.CTk):
                 auth  = fb_sign_in(email, password)
                 token = auth['idToken']
                 uid   = auth['localId']
-                print(f'[Auth] Signed in as uid={uid}')
 
                 user_data = fb_get(f'users/{uid}', token)
-                print(f'[Auth] user_data={user_data}')
                 if not user_data:
                     raise ValueError('Account not set up yet. Contact your admin.')
 
                 company_id   = user_data.get('companyId') or user_data.get('company', '')
                 company_data = fb_get(f'companies/{company_id}', token) or {}
-                print(f'[Auth] company_id={company_id}  company_data keys={list(company_data.keys())}')
                 devices      = list((company_data.get('devices') or {}).keys())
                 mode         = company_data.get('mode', 'people_counter')
 
@@ -620,7 +608,6 @@ class App(ctk.CTk):
                 import traceback
                 traceback.print_exc()
                 raw = str(e)
-                # Show a clean message — never expose tokens or full URLs
                 if '401' in raw or '403' in raw or 'Permission' in raw:
                     err_msg = 'Access denied. Your account may not have permission.'
                 elif 'Invalid email or password' in raw:
@@ -638,7 +625,6 @@ class App(ctk.CTk):
 
         threading.Thread(target=attempt, daemon=True).start()
 
-    # ── Main screen ────────────────────────────────────────────────────────────
     def _show_main(self) -> None:
         self._clear()
         self.geometry('800x760')
@@ -650,7 +636,6 @@ class App(ctk.CTk):
         mode_label  = 'Seatbelt Compliance' if is_seatbelt else 'People Counter'
         mode_color  = '#f59e0b' if is_seatbelt else ACCENT
 
-        # Header
         hdr = ctk.CTkFrame(self, fg_color=BG2, corner_radius=0, height=52)
         hdr.pack(fill='x')
         hdr.pack_propagate(False)
@@ -665,13 +650,11 @@ class App(ctk.CTk):
         ctk.CTkLabel(hdr, text=s['email'], font=('Helvetica', 10),
                      text_color=DIM).pack(side='right')
 
-        # Company row
         info = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         info.pack(fill='x', padx=20, pady=(12, 8))
         ctk.CTkLabel(info, text=f'Company:  {s["companyName"]}', font=('Helvetica', 12),
                      text_color=DIM).pack(side='left')
 
-        # Location field with autocomplete
         loc_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         loc_row.pack(fill='x', padx=20, pady=(0, 8))
         ctk.CTkLabel(loc_row, text='Location:', font=('Helvetica', 12),
@@ -685,7 +668,6 @@ class App(ctk.CTk):
         )
         self._loc_entry.pack(side='left', padx=(10, 0))
 
-        # Suggestions list (hidden until typing matches something)
         self._sugg_frame = ctk.CTkFrame(self, fg_color=BG2, corner_radius=6,
                                          border_width=1, border_color=BG3)
         self._existing_locations: list[str] = list(s.get('devices', []))
@@ -694,7 +676,6 @@ class App(ctk.CTk):
 
         ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x')
 
-        # Video picker
         vpick = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         vpick.pack(fill='x', padx=20, pady=14)
         ctk.CTkButton(vpick, text='Browse for Video', font=('Helvetica', 12),
@@ -704,7 +685,6 @@ class App(ctk.CTk):
                                           font=('Helvetica', 11), text_color=DIM)
         self._video_label.pack(side='left', padx=14)
 
-        # Preview canvas (tk.Canvas renders reliably on all platforms)
         canvas_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         canvas_wrap.pack(fill='x', padx=20)
         self._canvas = tk.Canvas(canvas_wrap, width=PREVIEW_W, height=PREVIEW_H,
@@ -716,7 +696,6 @@ class App(ctk.CTk):
             self._canvas.bind('<Button-1>', self._on_canvas_click)
         self._draw_placeholder()
 
-        # Direction + position controls — hidden in seatbelt mode (no counting line needed)
         if not is_seatbelt:
             ctrl = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
             ctrl.pack(fill='x', padx=20, pady=(10, 4))
@@ -752,7 +731,6 @@ class App(ctk.CTk):
 
         ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x', pady=(2, 0))
 
-        # Run row
         run_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         run_row.pack(fill='x', padx=20, pady=14)
         self._run_btn = ctk.CTkButton(
@@ -770,7 +748,6 @@ class App(ctk.CTk):
         self._progress.pack(fill='x', padx=20, pady=(0, 8))
         self._progress.set(0)
 
-        # Log
         log_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         log_wrap.pack(fill='both', expand=True, padx=20, pady=(0, 16))
         self._log_text = ctk.CTkTextbox(log_wrap, font=('Menlo', 10),
@@ -778,7 +755,6 @@ class App(ctk.CTk):
         self._log_text.pack(fill='both', expand=True)
         self._log_text.configure(state='disabled')
 
-    # ── Preview ────────────────────────────────────────────────────────────────
     def _draw_placeholder(self) -> None:
         self._canvas.delete('all')
         self._canvas.create_text(
@@ -906,7 +882,6 @@ class App(ctk.CTk):
             else:
                 btn.configure(fg_color=BG3, text_color=DIM)
 
-    # ── Run ────────────────────────────────────────────────────────────────────
     def _run(self) -> None:
         if not self.video_path:
             messagebox.showwarning('No Video', 'Please select a video file first.')
@@ -919,23 +894,19 @@ class App(ctk.CTk):
         if self._processing:
             return
 
-        # Duplicate check — looks at company level (new) AND all device paths (old records)
         size    = os.path.getsize(self.video_path)
         fhash   = file_hash(self.video_path, size)
         cid     = self.session['companyId']
         token   = self.session['token']
         previous = None
 
-        # New path (company-level)
         try:
             result = fb_get(f'companies/{cid}/processed/{fhash}', token)
             if isinstance(result, dict):
                 previous = result
-                print(f'[Dup] Found at company level: {result}')
-        except Exception as e:
-            print(f'[Dup] Company-level check failed: {e}')
+        except Exception:
+            pass
 
-        # Old path (per-device) — backward compat with records written before this update
         if not previous:
             for loc in self._existing_locations:
                 try:
@@ -943,13 +914,9 @@ class App(ctk.CTk):
                     if isinstance(result, dict):
                         result.setdefault('location', loc)
                         previous = result
-                        print(f'[Dup] Found at device level ({loc}): {result}')
                         break
                 except Exception:
                     pass
-
-        if not previous:
-            print(f'[Dup] No existing record found for hash {fhash}')
 
         if previous and isinstance(previous, dict):
             prev_date     = datetime.fromtimestamp(
@@ -1022,7 +989,6 @@ class App(ctk.CTk):
                 daemon=True,
             ).start()
 
-    # ── Log polling ────────────────────────────────────────────────────────────
     def _poll_logs(self) -> None:
         while True:
             try:
@@ -1036,7 +1002,6 @@ class App(ctk.CTk):
                 break
         self.after(100, self._poll_logs)
 
-    # ── Sign out ───────────────────────────────────────────────────────────────
     def _sign_out(self) -> None:
         clear_session()
         self.session = None

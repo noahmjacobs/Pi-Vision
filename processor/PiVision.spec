@@ -22,6 +22,14 @@ if not os.path.exists(_model_path):
     )
 datas += [(_model_path, '.')]
 
+# Bundle seatbelt model if present in processor/ directory
+_seatbelt_path = os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'seatbelt1.pt')
+if os.path.exists(_seatbelt_path):
+    print('Found seatbelt1.pt — bundling into app...')
+    datas += [(_seatbelt_path, '.')]
+else:
+    print('seatbelt1.pt not found — seatbelt detection will run in stub mode')
+
 hidden = []
 hidden += collect_submodules('customtkinter')
 hidden += ['PIL._tkinter_finder', 'pkg_resources.py2_warn']
