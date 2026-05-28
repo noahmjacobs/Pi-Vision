@@ -1,3 +1,7 @@
+// SHELVED — Alerts page is not linked from navigation or App.tsx.
+// Kept for future use. To re-enable: add 'Alerts' to the Page type in App.tsx
+// and add it to BottomNav.tsx and Header.tsx.
+
 const ALERTS = [
   {
     id: 1,
