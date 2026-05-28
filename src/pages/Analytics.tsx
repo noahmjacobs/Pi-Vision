@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { ref, onValue } from 'firebase/database'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext'
-import { DBEvent, DBVehicleEvent } from '../types'
+import { DBEvent, DBVehicleEvent, DBUpload } from '../types'
 
 const localDate = (ts: number) => new Date(ts).toLocaleDateString('en-CA')
 
@@ -274,8 +274,6 @@ function PeopleCounterAnalytics() {
       {/* Total crossings + donut */}
       <div className="glass-card" style={{ padding: '24px 28px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
-
-          {/* Left: number + hour filter */}
           <div style={{ flex: 1, minWidth: 160 }}>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
               Total Crossings — {selectedDate}
@@ -287,18 +285,12 @@ function PeopleCounterAnalytics() {
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 16 }}>
               people counted across all cameras
             </div>
-
-            {/* Hour filter */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>Filter hour:</span>
               <select
                 value={selectedHour ?? ''}
                 onChange={e => setSelectedHour(e.target.value === '' ? null : Number(e.target.value))}
-                style={{
-                  background: 'rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.08)',
-                  borderRadius: 8, padding: '5px 10px', fontSize: 13,
-                  color: 'var(--text-primary)', fontFamily: 'var(--font)', cursor: 'pointer',
-                }}
+                style={{ background: 'rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, padding: '5px 10px', fontSize: 13, color: 'var(--text-primary)', fontFamily: 'var(--font)', cursor: 'pointer' }}
               >
                 <option value="">All Day</option>
                 {hourlyData.map((v, h) => v > 0 && (
@@ -306,25 +298,15 @@ function PeopleCounterAnalytics() {
                 ))}
               </select>
               {selectedHour !== null && (
-                <button
-                  onClick={() => setSelectedHour(null)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)', padding: 0 }}
-                >
-                  Clear
-                </button>
+                <button onClick={() => setSelectedHour(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)', padding: 0 }}>Clear</button>
               )}
             </div>
           </div>
-
-          {/* Right: donut + legend */}
           {devices.length > 1 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
               <div style={{ position: 'relative' }}>
                 <DonutChart slices={perCamera.map(c => ({ label: c.device.name, value: c.count, color: c.color }))} total={pieTotalCount} />
-                <div style={{
-                  position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
-                }}>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                   <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{pieTotalCount}</div>
                   <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>total</div>
                 </div>
@@ -345,15 +327,12 @@ function PeopleCounterAnalytics() {
         </div>
       </div>
 
-      {/* Hourly bar chart — click bar to filter pie */}
+      {/* Hourly bar chart */}
       <div className="glass-card chart-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div className="chart-title" style={{ marginBottom: 0 }}>Crossings by Hour</div>
           {selectedHour !== null && (
-            <button onClick={() => setSelectedHour(null)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)' }}>
-              Clear filter
-            </button>
+            <button onClick={() => setSelectedHour(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)' }}>Clear filter</button>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: BAR_HEIGHT + 24, paddingBottom: 20, position: 'relative' }}>
@@ -365,28 +344,13 @@ function PeopleCounterAnalytics() {
               onMouseLeave={() => setHoveredHour(null)}
             >
               {hoveredHour === i && v > 0 && (
-                <div style={{
-                  position: 'absolute', bottom: `calc(${(v / maxHourly) * BAR_HEIGHT}px + 6px)`,
-                  left: '50%', transform: 'translateX(-50%)',
-                  background: 'rgba(15,20,30,0.92)', color: '#fff',
-                  fontSize: 12, fontWeight: 700, padding: '3px 7px', borderRadius: 5,
-                  whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10,
-                }}>{v}</div>
+                <div style={{ position: 'absolute', bottom: `calc(${(v / maxHourly) * BAR_HEIGHT}px + 6px)`, left: '50%', transform: 'translateX(-50%)', background: 'rgba(15,20,30,0.92)', color: '#fff', fontSize: 12, fontWeight: 700, padding: '3px 7px', borderRadius: 5, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10 }}>{v}</div>
               )}
-              <div style={{
-                width: '100%', height: `${(v / maxHourly) * BAR_HEIGHT}px`, minHeight: v > 0 ? 3 : 0,
-                background: i === selectedHour ? '#1d6ef4'
-                  : i === new Date().getHours() && selectedDate === todayStr ? 'rgba(29,110,244,0.7)'
-                  : hoveredHour === i ? 'rgba(29,110,244,0.65)' : 'rgba(29,110,244,0.35)',
-                borderRadius: '3px 3px 0 0', transition: 'height 0.2s, background 0.15s',
-                outline: i === selectedHour ? '2px solid rgba(29,110,244,0.4)' : 'none',
-              }} />
+              <div style={{ width: '100%', height: `${(v / maxHourly) * BAR_HEIGHT}px`, minHeight: v > 0 ? 3 : 0, background: i === selectedHour ? '#1d6ef4' : i === new Date().getHours() && selectedDate === todayStr ? 'rgba(29,110,244,0.7)' : hoveredHour === i ? 'rgba(29,110,244,0.65)' : 'rgba(29,110,244,0.35)', borderRadius: '3px 3px 0 0', transition: 'height 0.2s, background 0.15s', outline: i === selectedHour ? '2px solid rgba(29,110,244,0.4)' : 'none' }} />
             </div>
           ))}
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', pointerEvents: 'none' }}>
-            {[0, 6, 12, 18, 24].map(h => (
-              <span key={h} className="bar-label">{h}h</span>
-            ))}
+            {[0, 6, 12, 18, 24].map(h => <span key={h} className="bar-label">{h}h</span>)}
           </div>
         </div>
         {selectedHour !== null && (
@@ -463,18 +427,22 @@ function SeatbeltAnalytics() {
   const [hoveredHour, setHoveredHour]   = useState<number | null>(null)
   const [hoveredDay,  setHoveredDay]    = useState<number | null>(null)
 
-  const [deviceEventsMap, setDeviceEventsMap] = useState<Record<string, DBVehicleEvent[]>>({})
-  const [deviceCountsMap, setDeviceCountsMap] = useState<Record<string, Record<string, { total?: number }>>>({})
+  const [deviceEventsMap,  setDeviceEventsMap]  = useState<Record<string, DBVehicleEvent[]>>({})
+  const [deviceCountsMap,  setDeviceCountsMap]  = useState<Record<string, Record<string, { total?: number }>>>({})
+  const [deviceUploadsMap, setDeviceUploadsMap] = useState<Record<string, Record<string, DBUpload>>>({})
 
   useEffect(() => {
     if (!companyId || !devices.length) return
-    const rawEvents: Record<string, Record<string, DBVehicleEvent>> = {}
-    const rawCounts: Record<string, Record<string, { total?: number }>> = {}
+    const rawEvents:  Record<string, Record<string, DBVehicleEvent>> = {}
+    const rawCounts:  Record<string, Record<string, { total?: number }>> = {}
+    const rawUploads: Record<string, Record<string, DBUpload>> = {}
     const unsubs: (() => void)[] = []
 
     devices.forEach(device => {
       const evRef = ref(db, `companies/${companyId}/devices/${device.id}/events`)
       const coRef = ref(db, `companies/${companyId}/devices/${device.id}/counts`)
+      const upRef = ref(db, `companies/${companyId}/devices/${device.id}/uploads`)
+
       unsubs.push(onValue(evRef, snap => {
         rawEvents[device.id] = snap.exists() ? snap.val() : {}
         setDeviceEventsMap(prev => ({ ...prev, [device.id]: Object.values(rawEvents[device.id]) }))
@@ -483,11 +451,24 @@ function SeatbeltAnalytics() {
         rawCounts[device.id] = snap.exists() ? snap.val() : {}
         setDeviceCountsMap(prev => ({ ...prev, [device.id]: rawCounts[device.id] }))
       }))
+      unsubs.push(onValue(upRef, snap => {
+        rawUploads[device.id] = snap.exists() ? snap.val() : {}
+        setDeviceUploadsMap(prev => ({ ...prev, [device.id]: rawUploads[device.id] }))
+      }))
     })
     return () => unsubs.forEach(fn => fn())
   }, [companyId, devices.map(d => d.id).join(',')])
 
   const allEvents = useMemo(() => Object.values(deviceEventsMap).flat(), [deviceEventsMap])
+
+  // Flat map of uploadId -> DBUpload across all devices
+  const allUploads = useMemo(() => {
+    const out: Record<string, DBUpload> = {}
+    Object.values(deviceUploadsMap).forEach(uploads => {
+      Object.entries(uploads).forEach(([id, upload]) => { out[id] = upload })
+    })
+    return out
+  }, [deviceUploadsMap])
 
   const combinedCounts = useMemo(() => {
     const out: Record<string, number> = {}
@@ -505,6 +486,26 @@ function SeatbeltAnalytics() {
       (selectedHour === null || new Date(ev.timestamp).getHours() === selectedHour)
     ).sort((a, b) => b.timestamp - a.timestamp),
     [allEvents, selectedDate, selectedHour])
+
+  // Group filtered events by upload session
+  const groupedEvents = useMemo(() => {
+    const groups: Record<string, DBVehicleEvent[]> = {}
+    for (const ev of filteredEvents) {
+      const key = ev.uploadId ?? '__unknown__'
+      if (!groups[key]) groups[key] = []
+      groups[key].push(ev)
+    }
+    return groups
+  }, [filteredEvents])
+
+  // Sort groups newest-first by upload processedAt (or max event timestamp as fallback)
+  const sortedGroupKeys = useMemo(() => {
+    return Object.keys(groupedEvents).sort((a, b) => {
+      const aTime = allUploads[a]?.processedAt ?? Math.max(...(groupedEvents[a] ?? []).map(e => e.timestamp), 0)
+      const bTime = allUploads[b]?.processedAt ?? Math.max(...(groupedEvents[b] ?? []).map(e => e.timestamp), 0)
+      return bTime - aTime
+    })
+  }, [groupedEvents, allUploads])
 
   const byVehicleType = useMemo(() => {
     const counts: Record<string, number> = { car: 0, truck: 0, van: 0, suv: 0 }
@@ -567,8 +568,9 @@ function SeatbeltAnalytics() {
       String(ev.occupants),
       seatbeltLabel(ev),
       ev.driverDistracted ? 'Yes' : 'No',
+      ev.uploadId ? (allUploads[ev.uploadId]?.filename ?? ev.uploadId) : '',
     ])
-    downloadCSV(`traffic-log-${selectedDate}.csv`, rows, ['Time', 'Vehicle', 'Occupants', 'Seatbelts', 'Distracted'])
+    downloadCSV(`traffic-log-${selectedDate}.csv`, rows, ['Time', 'Vehicle', 'Occupants', 'Seatbelts', 'Distracted', 'Upload'])
   }
 
   return (
@@ -592,7 +594,7 @@ function SeatbeltAnalytics() {
         </div>
       </div>
 
-      {/* 7-day bar — vehicles per day */}
+      {/* 7-day bar */}
       <div className="glass-card chart-card">
         <div className="chart-title">Last 7 Days — Vehicles Logged</div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: WEEK_BAR_HEIGHT + 28, paddingBottom: 22, position: 'relative' }}>
@@ -612,11 +614,9 @@ function SeatbeltAnalytics() {
         </div>
       </div>
 
-      {/* Summary row: total + compliance + distracted + vehicle type donut */}
+      {/* Summary: total + compliance + donut */}
       <div className="glass-card" style={{ padding: '24px 28px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
-
-          {/* Left: counts + filter */}
           <div style={{ flex: 1, minWidth: 180 }}>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
               {selectedDate}{selectedHour !== null && ` · ${fmtHour(selectedHour)}`}
@@ -625,8 +625,6 @@ function SeatbeltAnalytics() {
               {complianceStats.total.toLocaleString()}
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6 }}>vehicles logged</div>
-
-            {/* Compliance + distracted summary */}
             <div style={{ display: 'flex', gap: 20, marginTop: 14, marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 20, fontWeight: 700, color: '#22c55e' }}>
@@ -641,7 +639,6 @@ function SeatbeltAnalytics() {
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>driver distracted</div>
               </div>
             </div>
-
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>Filter hour:</span>
               <select value={selectedHour ?? ''} onChange={e => setSelectedHour(e.target.value === '' ? null : Number(e.target.value))}
@@ -652,8 +649,6 @@ function SeatbeltAnalytics() {
               {selectedHour !== null && <button onClick={() => setSelectedHour(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)', padding: 0 }}>Clear</button>}
             </div>
           </div>
-
-          {/* Right: vehicle type donut */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
             <div style={{ position: 'relative' }}>
               <DonutChart slices={vehicleSlices} total={pieTotal} />
@@ -677,7 +672,7 @@ function SeatbeltAnalytics() {
         </div>
       </div>
 
-      {/* Hourly bar — vehicles per hour */}
+      {/* Hourly bar */}
       <div className="glass-card chart-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div className="chart-title" style={{ marginBottom: 0 }}>Vehicles by Hour of Day</div>
@@ -700,49 +695,77 @@ function SeatbeltAnalytics() {
         </div>
       </div>
 
-      {/* Full vehicle log */}
+      {/* Vehicle log — grouped by upload */}
       <div className="glass-card analytics-table-card">
         <div className="table-title">
           Vehicle Log — {filteredEvents.length} vehicle{filteredEvents.length !== 1 ? 's' : ''}
-          {filteredEvents.length > 50 ? ` (showing 50 of ${filteredEvents.length})` : ''}
+          {sortedGroupKeys.length > 1 ? ` · ${sortedGroupKeys.length} uploads` : ''}
         </div>
         {filteredEvents.length === 0 ? (
-          <div style={{ color: 'var(--text-secondary)', fontSize: 14, padding: '16px 0' }}>No vehicles logged for {selectedDate}.</div>
-        ) : (
-          <table className="events-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Vehicle</th>
-                <th>Occ</th>
-                <th>Seatbelts</th>
-                <th>Distracted</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredEvents.slice(0, 50).map(ev => (
-                <tr key={ev.id}>
-                  <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                    {new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </td>
-                  <td style={{ fontWeight: 500 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: VEHICLE_COLORS[ev.vehicleType] ?? '#888', display: 'inline-block' }} />
-                      {VEHICLE_LABELS[ev.vehicleType] ?? ev.vehicleType}
-                    </span>
-                  </td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{ev.occupants}</td>
-                  <td style={{ fontWeight: 500, color: isCompliant(ev) ? '#22c55e' : '#ef4444' }}>
-                    {seatbeltLabel(ev)}
-                  </td>
-                  <td style={{ color: ev.driverDistracted ? '#ef4444' : 'var(--text-tertiary)' }}>
-                    {ev.driverDistracted ? '📱 Yes' : 'No'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+          <div style={{ color: 'var(--text-secondary)', fontSize: 14, padding: '16px 0' }}>
+            No vehicles logged for {selectedDate}.
+          </div>
+        ) : sortedGroupKeys.map((uploadId, gi) => {
+          const events = groupedEvents[uploadId]
+          const upload = allUploads[uploadId]
+          const uploadTime = upload
+            ? new Date(upload.processedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+            : null
+          return (
+            <div key={uploadId} style={{ marginBottom: gi < sortedGroupKeys.length - 1 ? 20 : 0 }}>
+              {/* Upload section header */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                padding: '10px 0 8px 0',
+                borderTop: gi > 0 ? '1px solid rgba(0,0,0,0.08)' : 'none',
+                marginTop: gi > 0 ? 8 : 0,
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {upload?.filename ?? 'Upload'}
+                </span>
+                {uploadTime && (
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', flexShrink: 0 }}>· {uploadTime}</span>
+                )}
+                <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.06)', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>
+                  {events.length} vehicle{events.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <table className="events-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Vehicle</th>
+                    <th>Occ</th>
+                    <th>Seatbelts</th>
+                    <th>Distracted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.map(ev => (
+                    <tr key={ev.id}>
+                      <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </td>
+                      <td style={{ fontWeight: 500 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: VEHICLE_COLORS[ev.vehicleType] ?? '#888', display: 'inline-block', flexShrink: 0 }} />
+                          {VEHICLE_LABELS[ev.vehicleType] ?? ev.vehicleType}
+                        </span>
+                      </td>
+                      <td style={{ color: 'var(--text-secondary)' }}>{ev.occupants}</td>
+                      <td style={{ fontWeight: 500, color: isCompliant(ev) ? '#22c55e' : '#ef4444' }}>
+                        {seatbeltLabel(ev)}
+                      </td>
+                      <td style={{ color: ev.driverDistracted ? '#ef4444' : 'var(--text-tertiary)' }}>
+                        {ev.driverDistracted ? '📱 Yes' : 'No'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
