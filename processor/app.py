@@ -2,8 +2,21 @@
 """
 PiVision Desktop Processor
 ----------------------------
-Sign in with your PiVision account, pick a video, drag the counting line
-into position, and hit Process. Results appear live in the dashboard.
+Purpose: A standalone desktop GUI for processing recorded video files offline.
+The user signs in with their PiVision account, picks a video file, configures
+the counting line or seatbelt options, and hits Process. Results are written
+directly to Firebase and appear live in the PiVision web dashboard.
+
+Three modes (set per-company in Firebase under companies/{id}/mode):
+  people_counter — counts persons crossing a line (e.g. store entrance, hallway)
+  car_counter    — counts vehicles crossing a line (e.g. road, parking lot entry)
+  seatbelt       — analyzes front-seat seatbelt compliance (no counting line)
+
+people_counter and car_counter share the same pipeline (run_processing) and
+the same counting-line UI. The only difference is which YOLO classes are
+detected: class 0 (person) vs. classes 2/5/7 (car/bus/truck).
+
+seatbelt uses a completely separate pipeline in process_seatbelt.py.
 """
 
 from __future__ import annotations
@@ -30,27 +43,39 @@ from PIL import Image, ImageTk
 import customtkinter as ctk
 from ultralytics import YOLO
 
-# ── Appearance ────────────────────────────────────────────────────────────────────────────────
+# ── Appearance ──────────────────────────────────────────────────────────────────
+# Global theme — dark background with a blue accent.
+# AMBER is used for seatbelt mode elements; GREEN for car counter.
 ctk.set_appearance_mode('dark')
 ctk.set_default_color_theme('blue')
 
-BG      = '#0f172a'
-BG2     = '#1e293b'
-BG3     = '#334155'
-ACCENT  = '#3b82f6'
-AMBER   = '#f59e0b'
-TEXT    = '#f1f5f9'
-DIM     = '#94a3b8'
-SUCCESS = '#22c55e'
-DANGER  = '#ef4444'
+BG      = '#0f172a'   # deepest background (window)
+BG2     = '#1e293b'   # card / header background
+BG3     = '#334155'   # button resting state, borders
+ACCENT  = '#3b82f6'   # blue — people counter
+AMBER   = '#f59e0b'   # amber — seatbelt mode
+GREEN   = '#10b981'   # emerald — car counter
+TEXT    = '#f1f5f9'   # primary text
+DIM     = '#94a3b8'   # secondary / muted text
+SUCCESS = '#22c55e'   # success state (process button, done message)
+DANGER  = '#ef4444'   # error state
 
+# Canvas size for the video preview pane
 PREVIEW_W = 640
 PREVIEW_H = 360
 
-# ── Firebase config ────────────────────────────────────────────────────────────────────────────
+
+# ── Firebase config ─────────────────────────────────────────────────────────────
+# Public Firebase project — this key is safe in a public repo for now.
+# Before private launch: move to env vars / backend proxy and rotate.
 FIREBASE_API_KEY = 'AIzaSyAv8s0vErAwc3KZaRF55isbKTzhgjuwGNE'
 FIREBASE_DB_URL  = 'https://pivision-28ddb-default-rtdb.firebaseio.com'
 
+
+# ── Session file path ───────────────────────────────────────────────────────────
+# We store the session INSIDE the .app bundle so it survives auto-updates
+# (the updater copies session.json to the new bundle before relaunching).
+# Fallback: ~/.pivision_session.json for dev / non-bundled runs.
 def _session_path() -> Path:
     if getattr(sys, 'frozen', False):
         exe = Path(sys.executable)
@@ -62,8 +87,11 @@ def _session_path() -> Path:
 
 SESSION_FILE = _session_path()
 
+
+# ── YOLO model path ─────────────────────────────────────────────────────────────
+# When frozen by PyInstaller the model is bundled in _MEIPASS; otherwise
+# it's expected in the working directory (processor/ during dev).
 def _yolo_model_path() -> str:
-    import sys
     if getattr(sys, 'frozen', False):
         bundled = Path(sys._MEIPASS) / 'yolov8m.pt'
         if bundled.exists():
@@ -71,18 +99,24 @@ def _yolo_model_path() -> str:
     return 'yolov8m.pt'
 
 YOLO_MODEL = _yolo_model_path()
-YOLO_CONF  = 0.45
-YOLO_SKIP  = 2
-
-# ── Version — bump this before every release, must match the GitHub Release tag (minus the 'v')
-# Versioning: 1.0.x — middle number stays 0 until first real paying client
-APP_VERSION   = '1.0.13'
-GITHUB_REPO   = 'noahmjacobs/pi-vision'
-DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
+YOLO_CONF  = 0.45   # detection confidence threshold
+YOLO_SKIP  = 2      # run YOLO every N frames (speeds up processing without missing crossings)
 
 
-# ── Firebase REST helpers ──────────────────────────────────────────────────────────────────────────
+# ── Version ─────────────────────────────────────────────────────────────────────
+# Bump before every release. Must match the GitHub Release tag (minus the 'v').
+# Middle number stays 0 until first real paying client.
+APP_VERSION  = '1.0.13'
+GITHUB_REPO  = 'noahmjacobs/pi-vision'
+DOWNLOAD_URL = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
+
+
+# ── Firebase REST helpers ────────────────────────────────────────────────────────
+# All Firebase access uses the REST API with an ID token from Firebase Auth.
+# No Firebase SDK — keeps the binary small and dependencies simple.
+
 def fb_sign_in(email: str, password: str) -> dict:
+    """Exchange email/password for Firebase ID + refresh tokens."""
     url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}'
     r = requests.post(url, json={'email': email, 'password': password, 'returnSecureToken': True}, timeout=10)
     if r.status_code == 400:
@@ -92,6 +126,7 @@ def fb_sign_in(email: str, password: str) -> dict:
 
 
 def fb_refresh(refresh_token: str) -> dict:
+    """Exchange a refresh token for a fresh ID token (tokens expire after 1 h)."""
     url = f'https://securetoken.googleapis.com/v1/token?key={FIREBASE_API_KEY}'
     r = requests.post(url, json={'grant_type': 'refresh_token', 'refresh_token': refresh_token}, timeout=10)
     r.raise_for_status()
@@ -100,22 +135,28 @@ def fb_refresh(refresh_token: str) -> dict:
 
 
 def fb_get(path: str, token: str):
+    """Read a node from the Realtime Database."""
     r = requests.get(f'{FIREBASE_DB_URL}/{path}.json?auth={token}', timeout=10)
     r.raise_for_status()
     return r.json()
 
 
 def fb_put(path: str, data, token: str) -> None:
+    """Overwrite a node (PUT — replaces existing value)."""
     r = requests.put(f'{FIREBASE_DB_URL}/{path}.json?auth={token}', json=data, timeout=10)
     r.raise_for_status()
 
 
 def fb_patch(path: str, data: dict, token: str) -> None:
+    """Merge fields into a node (PATCH — only updates specified keys)."""
     r = requests.patch(f'{FIREBASE_DB_URL}/{path}.json?auth={token}', json=data, timeout=10)
     r.raise_for_status()
 
 
-# ── Session ────────────────────────────────────────────────────────────────────────────────────
+# ── Session persistence ──────────────────────────────────────────────────────────
+# Session JSON holds: token, refreshToken, uid, email, companyId, companyName,
+# devices (list of location names), and mode.
+
 def load_session() -> dict | None:
     try:
         if SESSION_FILE.exists():
@@ -133,7 +174,12 @@ def clear_session() -> None:
     SESSION_FILE.unlink(missing_ok=True)
 
 
+# ── Auto-update: version check ───────────────────────────────────────────────────
+# On launch we hit the GitHub releases API to see if a newer version exists.
+# If so we show a non-blocking popup; user can dismiss or trigger auto-install.
+
 def fetch_latest_version() -> str | None:
+    """Return the latest GitHub release tag (without 'v'), or None on failure."""
     try:
         r = requests.get(
             f'https://api.github.com/repos/{GITHUB_REPO}/releases/latest',
@@ -148,18 +194,24 @@ def fetch_latest_version() -> str | None:
     return None
 
 
-# ── Centroid tracker ────────────────────────────────────────────────────────────────────────────────
+# ── Centroid tracker ─────────────────────────────────────────────────────────────
+# Lightweight tracker used for both people_counter and car_counter.
+# Associates detections across frames by nearest-centroid matching, assigns
+# stable IDs, and detects when an ID crosses the counting line.
+
 class CentroidTracker:
     def __init__(self, max_disappeared: int = 30, max_distance: int = 80) -> None:
         self.next_id = 0
-        self.centroids: dict[int, tuple] = {}
-        self.disappeared: dict[int, int] = {}
-        self.sides: dict[int, str] = {}
+        self.centroids: dict[int, tuple] = {}      # id → (cx, cy)
+        self.disappeared: dict[int, int] = {}       # id → frames since last seen
+        self.sides: dict[int, str] = {}             # id → 'before'|'after' the line
         self.max_disappeared = max_disappeared
         self.max_distance = max_distance
 
     def update(self, new_centroids: list) -> dict:
+        """Feed new detections; returns current id→centroid mapping."""
         if not new_centroids:
+            # No detections this frame — age all existing tracks
             for oid in list(self.disappeared):
                 self.disappeared[oid] += 1
                 if self.disappeared[oid] > self.max_disappeared:
@@ -167,9 +219,11 @@ class CentroidTracker:
             return self.centroids
 
         if not self.centroids:
+            # First frame — register everything as new
             for c in new_centroids:
                 self._register(c)
         else:
+            # Match new detections to existing tracks by minimum Euclidean distance
             ids = list(self.centroids)
             existing = [self.centroids[i] for i in ids]
             used_ex: set[int] = set()
@@ -188,18 +242,24 @@ class CentroidTracker:
                     self.disappeared[oid] = 0
                     used_ex.add(best_j)
                     used_new.add(ni)
+            # Age tracks with no matching detection this frame
             for ej in range(len(existing)):
                 if ej not in used_ex:
                     oid = ids[ej]
                     self.disappeared[oid] += 1
                     if self.disappeared[oid] > self.max_disappeared:
                         self._deregister(oid)
+            # Register unmatched detections as new tracks
             for ni, nc in enumerate(new_centroids):
                 if ni not in used_new:
                     self._register(nc)
         return self.centroids
 
     def check_crossings(self, line_pos: int, axis: str = 'y', direction: str = 'down') -> int:
+        """
+        Compare each track's current side of the line to its previous side.
+        Returns the number of new crossings that match the requested direction.
+        """
         count = 0
         for oid, (cx, cy) in self.centroids.items():
             pos  = cy if axis == 'y' else cx
@@ -226,12 +286,30 @@ class CentroidTracker:
         self.sides.pop(oid, None)
 
 
-# ── Processing (background thread) ────────────────────────────────────────────────────────────────────────
+# ── Processing pipeline (background thread) ─────────────────────────────────────
+# Shared by people_counter and car_counter.
+# Goal: open the video, run YOLO on every Nth frame, track centroids, count
+# line crossings, then batch-write events + daily counts + stats to Firebase.
+
 def file_hash(path: str, size: int) -> str:
+    """Cheap content fingerprint used for duplicate detection (filename + size)."""
     return hashlib.md5(f'{Path(path).name}:{size}'.encode()).hexdigest()[:16]
 
 
-def run_processing(video_path, company_id, device_id, line_pos, direction, token, progress_cb, log_cb, done_cb, mode='people_counter'):
+def run_processing(
+    video_path, company_id, device_id, line_pos, direction,
+    token, progress_cb, log_cb, done_cb,
+    mode: str = 'people_counter',
+):
+    """
+    Core counting pipeline used by both people_counter and car_counter.
+
+    mode='people_counter'  → detect COCO class 0 (person)
+    mode='car_counter'     → detect COCO classes 2/5/7 (car/bus/truck)
+
+    line_pos: float 0–1, fraction along the relevant axis
+    direction: 'down'|'up'|'left'|'right'|'both'
+    """
     try:
         cap    = cv2.VideoCapture(video_path)
         total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -248,17 +326,23 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
         axis    = 'x' if direction in ('left', 'right') else 'y'
         line    = int((width if axis == 'x' else height) * line_pos)
 
+        # Use the video file's mtime as the recording date for event timestamps.
+        # This is approximate but much better than using wall-clock time.
         file_mtime  = os.path.getmtime(video_path)
         record_date = datetime.fromtimestamp(file_mtime, tz=timezone.utc)
 
         log_cb('Processing frames...')
 
-        is_seatbelt   = mode == 'seatbelt'
-        unit_label    = 'Vehicle' if is_seatbelt else 'Person'
-        count_label   = 'vehicle' if is_seatbelt else 'person'
+        # Determine what YOLO should detect and how to label events in Firebase.
+        # car_counter detects vehicles (car=2, bus=5, truck=7 in COCO).
+        # people_counter detects persons (class 0 in COCO).
+        is_car_counter = mode == 'car_counter'
+        yolo_classes   = [2, 5, 7] if is_car_counter else [0]
+        unit_label     = 'Vehicle' if is_car_counter else 'Person'
+        count_label    = 'vehicle' if is_car_counter else 'person'
 
-        people_count = 0
-        last_event   = ''
+        count      = 0
+        last_event = ''
         pending: list = []
         daily: dict   = {}
         frame_num     = 0
@@ -268,12 +352,14 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
             if not ret:
                 break
             frame_num += 1
-            progress_cb(frame_num / total, people_count)
+            progress_cb(frame_num / total, count)
 
+            # Skip frames to speed up processing — crossings are still caught
+            # because the tracker interpolates positions between sampled frames.
             if frame_num % YOLO_SKIP != 0:
                 continue
 
-            results   = model(frame, classes=[0], conf=YOLO_CONF, verbose=False)
+            results   = model(frame, classes=yolo_classes, conf=YOLO_CONF, verbose=False)
             centroids = [
                 ((int(b.xyxy[0][0]) + int(b.xyxy[0][2])) // 2,
                  (int(b.xyxy[0][1]) + int(b.xyxy[0][3])) // 2)
@@ -283,7 +369,9 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
             crossings = tracker.check_crossings(line, axis=axis, direction=direction)
 
             if crossings > 0:
-                people_count += crossings
+                count += crossings
+                # Reconstruct an approximate wall-clock timestamp for this frame
+                # based on recording date + elapsed video time.
                 frame_dt = (
                     record_date.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
                     + frame_num / fps
@@ -292,15 +380,20 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
                 date_key = datetime.fromtimestamp(frame_dt).strftime('%Y-%m-%d')
                 ts_label = datetime.fromtimestamp(frame_dt).strftime('%H:%M')
                 event_id = uuid.uuid4().hex[:8]
-                pending.append((event_id, ts_ms, f'{unit_label} counted', f'Crossed line · {ts_label} (from video)'))
+                pending.append((
+                    event_id, ts_ms,
+                    f'{unit_label} counted',
+                    f'Crossed line · {ts_label} (from video)',
+                ))
                 daily[date_key] = daily.get(date_key, 0) + crossings
                 last_event = f'{unit_label} · {ts_label}'
 
         cap.release()
 
-        log_cb(f'Complete — {people_count} crossings detected')
+        log_cb(f'Complete — {count} crossings detected')
         log_cb(f'Writing {len(pending)} events to Firebase...')
 
+        # Write individual crossing events, daily totals, and summary stats.
         base = f'companies/{company_id}/devices/{device_id}'
         for event_id, ts_ms, label, sublabel in pending:
             fb_put(f'{base}/events/{event_id}', {
@@ -308,52 +401,61 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
                 'type': count_label, 'label': label, 'sublabel': sublabel,
             }, token)
 
-        for date_key, count in daily.items():
+        for date_key, daily_count in daily.items():
             path    = f'{base}/counts/{date_key}/total'
             current = fb_get(path, token) or 0
-            fb_put(path, current + count, token)
-            log_cb(f'  {date_key}: {count} crossings')
+            fb_put(path, current + daily_count, token)
+            log_cb(f'  {date_key}: {daily_count} crossings')
 
-        fb_patch(f'{base}/stats', {'peopleCount': people_count, 'lastEvent': last_event}, token)
+        fb_patch(f'{base}/stats', {'peopleCount': count, 'lastEvent': last_event}, token)
 
+        # Record this file as processed so we can warn the user if they try again.
         size  = os.path.getsize(video_path)
         fhash = file_hash(video_path, size)
         fb_put(f'companies/{company_id}/processed/{fhash}', {
-            'filename':    Path(video_path).name,
-            'size':        size,
-            'location':    device_id,
-            'processedAt': int(time.time() * 1000),
-            'vehicleCount': people_count,
+            'filename':     Path(video_path).name,
+            'size':         size,
+            'location':     device_id,
+            'processedAt':  int(time.time() * 1000),
+            'vehicleCount': count,
         }, token)
 
         log_cb('Results are live in PiVision Analytics!')
-        done_cb(True, people_count)
+        done_cb(True, count)
 
     except Exception as e:
         log_cb(f'Error: {e}')
         done_cb(False, 0)
 
 
-# ── App ────────────────────────────────────────────────────────────────────────────────────────────
+# ── GUI Application ──────────────────────────────────────────────────────────────
+# Built with customtkinter (dark-themed wrapper around tkinter).
+# The app has three screens: loading splash → sign-in → main.
+# All network calls (sign-in, refresh, Firebase reads/writes, YOLO processing)
+# run on daemon threads so the UI never freezes.
+
 class App(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         self.title('PiVision Processor')
         self.configure(fg_color=BG)
 
+        # State
         self.session: dict | None = None
         self.video_path: str | None = None
-        self._preview_frame = None
-        self._tk_img = None
-        self.line_pos = 0.5
-        self.direction = 'down'
-        self._vehicle_dir = 'towards'
+        self._preview_frame = None   # raw RGB numpy array of the preview frame
+        self._tk_img = None          # must hold reference or Tkinter GCs it
+        self.line_pos  = 0.5         # counting line position as 0.0–1.0 fraction
+        self.direction = 'down'      # 'down'|'up'|'left'|'right'
+        self._vehicle_dir = 'towards'  # seatbelt traffic direction
         self._processing = False
         self._log_queue: queue.Queue = queue.Queue()
+        # Track preview image offset/size for accurate click-to-line mapping
         self._px = self._py = 0
         self._pw = PREVIEW_W
         self._ph = PREVIEW_H
 
+        # Restore session from disk; if stale, refresh the token
         saved = load_session()
         if saved and saved.get('refreshToken'):
             self._try_restore_session(saved)
@@ -361,11 +463,16 @@ class App(ctk.CTk):
             self._show_signin()
 
         self._poll_logs()
-        # Skip update check on first launch after an auto-update — prevents step-through loop
+        # Skip update check on first launch after an auto-update — prevents
+        # an infinite update loop (new version sees itself as "old" briefly).
         if '--just-updated' not in sys.argv:
             self.after(3000, self._check_for_update)
 
+
+    # ── Auto-update ──────────────────────────────────────────────────────────────
+
     def _check_for_update(self) -> None:
+        """Background thread checks GitHub; if newer version found, shows dialog."""
         def worker():
             latest = fetch_latest_version()
             if latest and latest != APP_VERSION:
@@ -383,9 +490,11 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(dialog, text='Update Available', font=('Helvetica', 17, 'bold'),
                      text_color=TEXT).pack(pady=(28, 4))
-        status_label = ctk.CTkLabel(dialog,
-                     text=f'PiVision Processor v{latest} is available.\nYou have v{APP_VERSION}.',
-                     font=('Helvetica', 13), text_color=DIM, justify='center')
+        status_label = ctk.CTkLabel(
+            dialog,
+            text=f'PiVision Processor v{latest} is available.\nYou have v{APP_VERSION}.',
+            font=('Helvetica', 13), text_color=DIM, justify='center',
+        )
         status_label.pack(pady=(0, 14))
 
         progress_bar = ctk.CTkProgressBar(dialog, width=320)
@@ -394,14 +503,19 @@ class App(ctk.CTk):
         btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
         btn_row.pack()
 
-        update_btn = ctk.CTkButton(btn_row, text='Update Now', fg_color=ACCENT,
-                      command=lambda: self._start_auto_update(dialog, status_label, progress_bar, btn_row, latest),
-                      width=150)
+        update_btn = ctk.CTkButton(
+            btn_row, text='Update Now', fg_color=ACCENT,
+            command=lambda: self._start_auto_update(
+                dialog, status_label, progress_bar, btn_row, latest
+            ),
+            width=150,
+        )
         update_btn.pack(side='left', padx=6)
         ctk.CTkButton(btn_row, text='Not Now', fg_color=BG3, hover_color=BG3,
                       command=dialog.destroy, width=100).pack(side='left', padx=6)
 
     def _start_auto_update(self, dialog, status_label, progress_bar, btn_row, latest: str) -> None:
+        """Download the latest DMG, install via ditto, carry session over, relaunch."""
         for w in btn_row.winfo_children():
             w.destroy()
         progress_bar.pack(pady=(0, 16))
@@ -410,6 +524,7 @@ class App(ctk.CTk):
             try:
                 dmg_url = f'https://github.com/{GITHUB_REPO}/releases/latest/download/PiVision-mac.dmg'
 
+                # Locate the running .app bundle so we know where to install
                 exe = Path(sys.executable)
                 if exe.parts[-2] == 'MacOS' and exe.parts[-3] == 'Contents':
                     app_path = exe.parent.parent.parent
@@ -420,8 +535,8 @@ class App(ctk.CTk):
                 self.after(0, lambda: status_label.configure(text='Downloading…'))
 
                 with tempfile.TemporaryDirectory() as tmp:
-                    dmg_path   = Path(tmp) / 'PiVision-update.dmg'
-                    mnt_point  = Path(tmp) / 'mnt'
+                    dmg_path  = Path(tmp) / 'PiVision-update.dmg'
+                    mnt_point = Path(tmp) / 'mnt'
                     mnt_point.mkdir()
 
                     r = requests.get(dmg_url, stream=True, timeout=60)
@@ -438,7 +553,8 @@ class App(ctk.CTk):
                     self.after(0, lambda: status_label.configure(text='Installing…'))
 
                     subprocess.run(
-                        ['hdiutil', 'attach', str(dmg_path), '-nobrowse', '-mountpoint', str(mnt_point)],
+                        ['hdiutil', 'attach', str(dmg_path), '-nobrowse',
+                         '-mountpoint', str(mnt_point)],
                         check=True, capture_output=True,
                     )
                     apps = list(mnt_point.glob('*.app'))
@@ -446,16 +562,21 @@ class App(ctk.CTk):
                         raise RuntimeError('No .app found in DMG')
                     src_app = apps[0]
                     dst_app = install_dir / 'PiVision.app'
-                    old_session = app_path / 'Contents' / 'Resources' / 'session.json'
+
+                    # Carry the session file into the new bundle so the user
+                    # stays logged in after the relaunch.
+                    old_session  = app_path / 'Contents' / 'Resources' / 'session.json'
                     session_data = old_session.read_text() if old_session.exists() else None
 
-                    subprocess.run(['ditto', str(src_app), str(dst_app)], check=True, capture_output=True)
+                    subprocess.run(['ditto', str(src_app), str(dst_app)],
+                                   check=True, capture_output=True)
                     subprocess.run(['xattr', '-cr', str(dst_app)], capture_output=True)
 
                     if session_data:
                         new_session = dst_app / 'Contents' / 'Resources' / 'session.json'
                         new_session.parent.mkdir(parents=True, exist_ok=True)
                         new_session.write_text(session_data)
+
                     subprocess.run(['hdiutil', 'detach', str(mnt_point)], capture_output=True)
 
                 self.after(0, lambda: self._relaunch(dst_app))
@@ -467,6 +588,7 @@ class App(ctk.CTk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _relaunch(self, app_path: Path) -> None:
+        """Open the new .app in the background, then quit this process."""
         subprocess.Popen(
             ['bash', '-c', f'sleep 1.5 && open "{app_path}" --args --just-updated'],
             start_new_session=True,
@@ -475,7 +597,11 @@ class App(ctk.CTk):
         )
         self.quit()
 
+
+    # ── Session restore ───────────────────────────────────────────────────────────
+
     def _try_restore_session(self, saved: dict) -> None:
+        """Refresh the stored token in the background; fall back to sign-in on failure."""
         self._show_loading()
 
         def attempt():
@@ -492,7 +618,11 @@ class App(ctk.CTk):
 
         threading.Thread(target=attempt, daemon=True).start()
 
+
+    # ── Screen helpers ────────────────────────────────────────────────────────────
+
     def _clear(self) -> None:
+        """Destroy all child widgets (used before showing a new screen)."""
         for w in self.winfo_children():
             w.destroy()
 
@@ -507,6 +637,9 @@ class App(ctk.CTk):
         ctk.CTkLabel(f, text='Signing in...', font=('Helvetica', 12),
                      text_color=DIM).pack()
 
+
+    # ── Sign-in screen ────────────────────────────────────────────────────────────
+
     def _show_signin(self) -> None:
         self._clear()
         self.geometry('420x460')
@@ -518,15 +651,14 @@ class App(ctk.CTk):
         ctk.CTkLabel(hdr, text='PiVision Processor', font=('Helvetica', 20, 'bold'),
                      text_color='white').pack(expand=True)
 
-        card = ctk.CTkFrame(self, fg_color=BG2, corner_radius=12)
+        card  = ctk.CTkFrame(self, fg_color=BG2, corner_radius=12)
         card.pack(fill='x', padx=28, pady=24)
-
         inner = ctk.CTkFrame(card, fg_color=BG2, corner_radius=0)
         inner.pack(fill='x', padx=28, pady=24)
 
         ctk.CTkLabel(inner, text='Email', font=('Helvetica', 12, 'bold'),
                      text_color=TEXT).pack(anchor='w')
-        self._email_var = ctk.StringVar()
+        self._email_var   = ctk.StringVar()
         self._email_entry = ctk.CTkEntry(
             inner, textvariable=self._email_var, font=('Helvetica', 13),
             fg_color='white', text_color='#111827', border_color='#d1d5db',
@@ -618,17 +750,41 @@ class App(ctk.CTk):
 
         threading.Thread(target=attempt, daemon=True).start()
 
+
+    # ── Main screen ───────────────────────────────────────────────────────────────
+    # Layout (top to bottom):
+    #   Header bar (mode badge, email, sign-out)
+    #   Company row
+    #   Location name entry + autocomplete
+    #   Video picker
+    #   Preview canvas (640x360)
+    #   Direction + line-position controls   ← people_counter / car_counter only
+    #   Traffic direction picker             ← seatbelt only
+    #   Process button + progress bar
+    #   Log textbox
+
     def _show_main(self) -> None:
         self._clear()
         self.geometry('800x760')
         self.resizable(True, True)
-        s = self.session
-
+        s    = self.session
         mode = s.get('mode', 'people_counter')
-        is_seatbelt = mode == 'seatbelt'
-        mode_label  = 'Seatbelt Compliance' if is_seatbelt else 'People Counter'
-        mode_color  = AMBER if is_seatbelt else ACCENT
 
+        is_seatbelt    = mode == 'seatbelt'
+        is_car_counter = mode == 'car_counter'
+
+        # Mode badge: blue = people counter, green = car counter, amber = seatbelt
+        if is_seatbelt:
+            mode_label = 'Seatbelt Compliance'
+            mode_color = AMBER
+        elif is_car_counter:
+            mode_label = 'Car Counter'
+            mode_color = GREEN
+        else:
+            mode_label = 'People Counter'
+            mode_color = ACCENT
+
+        # ── Header bar ──
         hdr = ctk.CTkFrame(self, fg_color=BG2, corner_radius=0, height=52)
         hdr.pack(fill='x')
         hdr.pack_propagate(False)
@@ -643,16 +799,19 @@ class App(ctk.CTk):
         ctk.CTkLabel(hdr, text=s['email'], font=('Helvetica', 10),
                      text_color=DIM).pack(side='right')
 
+        # ── Company info ──
         info = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         info.pack(fill='x', padx=20, pady=(12, 8))
         ctk.CTkLabel(info, text=f'Company:  {s["companyName"]}', font=('Helvetica', 12),
                      text_color=DIM).pack(side='left')
 
+        # ── Location entry with autocomplete ──
+        # Populated from Firebase on load; user can type a new name freely.
         loc_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         loc_row.pack(fill='x', padx=20, pady=(0, 8))
         ctk.CTkLabel(loc_row, text='Location:', font=('Helvetica', 12),
                      text_color=DIM).pack(side='left')
-        self._loc_var = ctk.StringVar()
+        self._loc_var   = ctk.StringVar()
         self._loc_entry = ctk.CTkEntry(
             loc_row, textvariable=self._loc_var, font=('Helvetica', 13),
             fg_color=BG2, text_color=TEXT, border_color=BG3,
@@ -669,6 +828,7 @@ class App(ctk.CTk):
 
         ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x')
 
+        # ── Video picker ──
         vpick = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         vpick.pack(fill='x', padx=20, pady=14)
         ctk.CTkButton(vpick, text='Browse for Video', font=('Helvetica', 12),
@@ -678,30 +838,35 @@ class App(ctk.CTk):
                                           font=('Helvetica', 11), text_color=DIM)
         self._video_label.pack(side='left', padx=14)
 
+        # ── Preview canvas ──
+        # Clicking the canvas (in counting-line modes) moves the line.
         canvas_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         canvas_wrap.pack(fill='x', padx=20)
-        self._canvas = tk.Canvas(canvas_wrap, width=PREVIEW_W, height=PREVIEW_H,
-                                  bg='#111827', highlightthickness=1,
-                                  highlightbackground=BG3,
-                                  cursor='crosshair' if not is_seatbelt else 'arrow')
+        self._canvas = tk.Canvas(
+            canvas_wrap, width=PREVIEW_W, height=PREVIEW_H,
+            bg='#111827', highlightthickness=1, highlightbackground=BG3,
+            cursor='crosshair' if not is_seatbelt else 'arrow',
+        )
         self._canvas.pack()
         if not is_seatbelt:
             self._canvas.bind('<Button-1>', self._on_canvas_click)
         self._draw_placeholder()
 
         if not is_seatbelt:
-            # People counter: direction + position controls
+            # ── Counting-line controls (people_counter + car_counter) ──
             ctrl = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
             ctrl.pack(fill='x', padx=20, pady=(10, 4))
             ctk.CTkLabel(ctrl, text='Direction:', font=('Helvetica', 12),
                          text_color=DIM).pack(side='left')
 
             self._dir_btns: dict[str, ctk.CTkButton] = {}
-            for label, val in [('↓ Down', 'down'), ('↑ Up', 'up'), ('← Left', 'left'),
-                               ('→ Right', 'right')]:
-                b = ctk.CTkButton(ctrl, text=label, font=('Helvetica', 11),
-                                  width=80, height=30, fg_color=BG3, hover_color=ACCENT,
-                                  text_color=DIM, command=lambda v=val: self._set_direction(v))
+            for label, val in [('↓ Down', 'down'), ('↑ Up', 'up'),
+                               ('← Left', 'left'), ('→ Right', 'right')]:
+                b = ctk.CTkButton(
+                    ctrl, text=label, font=('Helvetica', 11),
+                    width=80, height=30, fg_color=BG3, hover_color=ACCENT,
+                    text_color=DIM, command=lambda v=val: self._set_direction(v),
+                )
                 b.pack(side='left', padx=3)
                 self._dir_btns[val] = b
             self._update_dir_buttons()
@@ -710,35 +875,42 @@ class App(ctk.CTk):
             pos_row.pack(fill='x', padx=20, pady=(0, 6))
             ctk.CTkLabel(pos_row, text='Position:', font=('Helvetica', 12),
                          text_color=DIM).pack(side='left')
-            self._line_label = ctk.CTkLabel(pos_row, text='50%', font=('Helvetica', 12, 'bold'),
+            self._line_label = ctk.CTkLabel(pos_row, text='50%',
+                                             font=('Helvetica', 12, 'bold'),
                                              text_color=TEXT, width=40)
             self._line_label.pack(side='right')
-            self._slider = ctk.CTkSlider(pos_row, from_=5, to=95, number_of_steps=90,
-                                          fg_color=BG3, progress_color=ACCENT, button_color=ACCENT,
-                                          button_hover_color='#2563eb', command=self._on_slider)
+            self._slider = ctk.CTkSlider(
+                pos_row, from_=5, to=95, number_of_steps=90,
+                fg_color=BG3, progress_color=ACCENT, button_color=ACCENT,
+                button_hover_color='#2563eb', command=self._on_slider,
+            )
             self._slider.set(50)
             self._slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
         else:
-            # Seatbelt mode: traffic direction — towards camera (Y increases) or both
+            # ── Seatbelt: traffic direction picker ──
+            # Towards camera = vehicles moving into frame from top (Y increases).
             dir_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
             dir_row.pack(fill='x', padx=20, pady=(10, 4))
             ctk.CTkLabel(dir_row, text='Traffic Direction:', font=('Helvetica', 12),
                          text_color=DIM).pack(side='left')
             self._vdir_btns: dict[str, ctk.CTkButton] = {}
             for label, val in [('↓ Towards Camera', 'towards'), ('↔ Both', 'both')]:
-                b = ctk.CTkButton(dir_row, text=label, font=('Helvetica', 11),
-                                  width=150, height=30, fg_color=BG3, hover_color=AMBER,
-                                  text_color=DIM, command=lambda v=val: self._set_vehicle_dir(v))
+                b = ctk.CTkButton(
+                    dir_row, text=label, font=('Helvetica', 11),
+                    width=150, height=30, fg_color=BG3, hover_color=AMBER,
+                    text_color=DIM, command=lambda v=val: self._set_vehicle_dir(v),
+                )
                 b.pack(side='left', padx=3)
                 self._vdir_btns[val] = b
             self._update_vdir_buttons()
 
-            self._dir_btns = {}
-            self._slider   = None
+            self._dir_btns   = {}
+            self._slider     = None
             self._line_label = None
 
         ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x', pady=(2, 0))
 
+        # ── Process button + progress ──
         run_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         run_row.pack(fill='x', padx=20, pady=14)
         self._run_btn = ctk.CTkButton(
@@ -751,11 +923,12 @@ class App(ctk.CTk):
                                            text_color=DIM)
         self._status_label.pack(side='left', padx=16)
 
-        self._progress = ctk.CTkProgressBar(self, progress_color=ACCENT, fg_color=BG3, height=8,
-                                             corner_radius=4)
+        self._progress = ctk.CTkProgressBar(self, progress_color=ACCENT, fg_color=BG3,
+                                             height=8, corner_radius=4)
         self._progress.pack(fill='x', padx=20, pady=(0, 8))
         self._progress.set(0)
 
+        # ── Log output ──
         log_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         log_wrap.pack(fill='both', expand=True, padx=20, pady=(0, 16))
         self._log_text = ctk.CTkTextbox(log_wrap, font=('Menlo', 10),
@@ -763,15 +936,20 @@ class App(ctk.CTk):
         self._log_text.pack(fill='both', expand=True)
         self._log_text.configure(state='disabled')
 
+
+    # ── Preview canvas helpers ────────────────────────────────────────────────────
+
     def _draw_placeholder(self) -> None:
         self._canvas.delete('all')
         is_seatbelt = self.session and self.session.get('mode') == 'seatbelt'
-        text = ('Select a video to begin' if is_seatbelt else
-                'Select a video — then click anywhere on the preview to set the counting line')
+        text = (
+            'Select a video to begin' if is_seatbelt else
+            'Select a video — then click anywhere on the preview to set the counting line'
+        )
         self._canvas.create_text(
             PREVIEW_W // 2, PREVIEW_H // 2,
-            text=text,
-            fill='#475569', font=('Helvetica', 12), width=420, justify='center',
+            text=text, fill='#475569',
+            font=('Helvetica', 12), width=420, justify='center',
         )
 
     def _pick_video(self) -> None:
@@ -786,6 +964,7 @@ class App(ctk.CTk):
         self._load_preview()
 
     def _load_preview(self) -> None:
+        """Extract the middle frame of the video for the preview canvas."""
         cap   = cv2.VideoCapture(self.video_path)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.set(cv2.CAP_PROP_POS_FRAMES, total // 2)
@@ -797,28 +976,33 @@ class App(ctk.CTk):
         self._redraw_preview()
 
     def _redraw_preview(self) -> None:
+        """Re-render the preview canvas with the current line position drawn on top."""
         if self._preview_frame is None:
             return
         h, w  = self._preview_frame.shape[:2]
         scale = min(PREVIEW_W / w, PREVIEW_H / h)
         nw, nh = int(w * scale), int(h * scale)
-        frame = cv2.resize(self._preview_frame, (nw, nh))
+        frame  = cv2.resize(self._preview_frame, (nw, nh))
 
         is_seatbelt = self.session and self.session.get('mode') == 'seatbelt'
 
         if not is_seatbelt:
+            # Draw the counting line on top of the preview
             axis = 'x' if self.direction in ('left', 'right') else 'y'
             if axis == 'y':
                 ly = int(nh * self.line_pos)
                 cv2.line(frame, (0, ly), (nw, ly), (239, 68, 68), 2)
-                cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%', (8, max(ly - 6, 14)),
+                cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%',
+                            (8, max(ly - 6, 14)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
             else:
                 lx = int(nw * self.line_pos)
                 cv2.line(frame, (lx, 0), (lx, nh), (239, 68, 68), 2)
-                cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%', (max(lx + 4, 4), 20),
+                cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%',
+                            (max(lx + 4, 4), 20),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
 
+        # Letter-box the scaled frame onto the fixed-size canvas
         padded = Image.new('RGB', (PREVIEW_W, PREVIEW_H), (13, 18, 30))
         ox = (PREVIEW_W - nw) // 2
         oy = (PREVIEW_H - nh) // 2
@@ -829,24 +1013,30 @@ class App(ctk.CTk):
         self._canvas.delete('all')
         self._canvas.create_image(0, 0, anchor='nw', image=self._tk_img)
         if not is_seatbelt:
-            self._canvas.create_text(PREVIEW_W - 8, PREVIEW_H - 8, anchor='se',
-                                      text='Click or use slider to move the counting line',
-                                      fill='#475569', font=('Helvetica', 10))
+            self._canvas.create_text(
+                PREVIEW_W - 8, PREVIEW_H - 8, anchor='se',
+                text='Click or use slider to move the counting line',
+                fill='#475569', font=('Helvetica', 10),
+            )
+
+
+    # ── Location autocomplete ─────────────────────────────────────────────────────
 
     def _load_locations(self) -> None:
+        """Fetch existing device/location names from Firebase in the background."""
         def fetch():
             try:
                 data = fb_get(f'companies/{self.session["companyId"]}/devices',
                               self.session['token'])
                 if isinstance(data, dict):
-                    locs = sorted(data.keys())
-                    self._existing_locations = locs
+                    self._existing_locations = sorted(data.keys())
             except Exception:
                 pass
         threading.Thread(target=fetch, daemon=True).start()
 
     def _on_loc_change(self, *_) -> None:
-        typed = self._loc_var.get().strip().lower()
+        """Show matching location suggestions as the user types."""
+        typed   = self._loc_var.get().strip().lower()
         matches = [loc for loc in self._existing_locations
                    if typed and typed in loc.lower() and loc.lower() != typed]
 
@@ -869,12 +1059,16 @@ class App(ctk.CTk):
         self._loc_var.set(loc)
         self._sugg_frame.pack_forget()
 
+
+    # ── Counting line controls ────────────────────────────────────────────────────
+
     def _on_slider(self, val: float) -> None:
         self.line_pos = val / 100
         self._line_label.configure(text=f'{int(val)}%')
         self._redraw_preview()
 
     def _on_canvas_click(self, event: tk.Event) -> None:
+        """Translate a canvas click to a line position (accounts for letter-boxing)."""
         if self._preview_frame is None:
             return
         axis = 'x' if self.direction in ('left', 'right') else 'y'
@@ -908,7 +1102,11 @@ class App(ctk.CTk):
             else:
                 btn.configure(fg_color=BG3, text_color=DIM)
 
+
+    # ── Run / process ─────────────────────────────────────────────────────────────
+
     def _run(self) -> None:
+        """Validate inputs, check for duplicates, then kick off the correct pipeline."""
         if not self.video_path:
             messagebox.showwarning('No Video', 'Please select a video file first.')
             return
@@ -920,6 +1118,8 @@ class App(ctk.CTk):
         if self._processing:
             return
 
+        # ── Duplicate detection ──
+        # Hash the file and check if it's been processed before (company-wide).
         size    = os.path.getsize(self.video_path)
         fhash   = file_hash(self.video_path, size)
         cid     = self.session['companyId']
@@ -933,6 +1133,7 @@ class App(ctk.CTk):
         except Exception:
             pass
 
+        # Also check per-device processed nodes (older schema)
         if not previous:
             for loc in self._existing_locations:
                 try:
@@ -945,15 +1146,15 @@ class App(ctk.CTk):
                     pass
 
         if previous and isinstance(previous, dict):
-            prev_date     = datetime.fromtimestamp(
+            prev_date  = datetime.fromtimestamp(
                 previous.get('processedAt', 0) / 1000
             ).strftime('%B %d, %Y at %H:%M')
-            prev_count    = previous.get('vehicleCount', 0)
-            prev_location = previous.get('location', 'unknown location')
+            prev_count = previous.get('vehicleCount', 0)
+            prev_loc   = previous.get('location', 'unknown location')
             answer = messagebox.askyesno(
                 'Already Processed',
                 f'"{Path(self.video_path).name}" was already processed on {prev_date}\n'
-                f'Location: {prev_location}  ·  {prev_count} crossings found.\n\n'
+                f'Location: {prev_loc}  ·  {prev_count} crossings found.\n\n'
                 f'Process again? (This will add duplicate counts to the dashboard.)',
             )
             if not answer:
@@ -964,8 +1165,9 @@ class App(ctk.CTk):
         self._progress.set(0)
         self._status_label.configure(text='', text_color=DIM)
 
-        is_seatbelt = self.session.get('mode', 'people_counter') == 'seatbelt'
-        unit = 'vehicles' if is_seatbelt else 'crossings'
+        mode = self.session.get('mode', 'people_counter')
+        is_seatbelt = mode == 'seatbelt'
+        unit = 'vehicles' if mode in ('seatbelt', 'car_counter') else 'crossings'
 
         def progress_cb(frac: float, count: int) -> None:
             def _update():
@@ -981,7 +1183,8 @@ class App(ctk.CTk):
                 self._processing = False
                 self._run_btn.configure(state='normal', text='Process Video')
                 self._status_label.configure(
-                    text=f'Done — {count} {unit} written to dashboard' if success else 'Processing failed',
+                    text=f'Done — {count} {unit} written to dashboard' if success
+                         else 'Processing failed',
                     text_color=SUCCESS if success else DANGER,
                 )
             self.after(0, _update)
@@ -1001,6 +1204,8 @@ class App(ctk.CTk):
                 daemon=True,
             ).start()
         else:
+            # Both people_counter and car_counter go through run_processing;
+            # mode is forwarded so it can pick the right YOLO classes.
             threading.Thread(
                 target=run_processing,
                 args=(
@@ -1011,10 +1216,15 @@ class App(ctk.CTk):
                     self.direction,
                     self.session['token'],
                     progress_cb, log_cb, done_cb,
-                    self.session.get('mode', 'people_counter'),
+                    mode,
                 ),
                 daemon=True,
             ).start()
+
+
+    # ── Log polling ───────────────────────────────────────────────────────────────
+    # Background threads put messages on _log_queue; this timer drains it into
+    # the UI textbox. Using a queue avoids tkinter thread-safety issues.
 
     def _poll_logs(self) -> None:
         while True:
