@@ -9,8 +9,6 @@ interface AddCompanyForm {
   companyName: string
   email: string
   password: string
-  cameraName: string
-  cameraId: string
   mode: 'people_counter' | 'car_counter' | 'seatbelt'
 }
 
@@ -90,7 +88,7 @@ export default function Admin({ onNavigate }: { onNavigate: (page: Page) => void
   const { allCompanies } = useAuth()
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm]       = useState<AddCompanyForm>({
-    companyName: '', email: '', password: '', cameraName: '', cameraId: '', mode: 'people_counter',
+    companyName: '', email: '', password: '', mode: 'people_counter',
   })
   const [saving, setSaving]   = useState(false)
   const [err, setErr]         = useState('')
@@ -103,8 +101,8 @@ export default function Admin({ onNavigate }: { onNavigate: (page: Page) => void
   async function handleAddCompany() {
     setErr('')
     setSuccess('')
-    const { companyName, email, password, cameraName, cameraId } = form
-    if (!companyName.trim() || !email.trim() || !password.trim() || !cameraName.trim() || !cameraId.trim()) {
+    const { companyName, email, password } = form
+    if (!companyName.trim() || !email.trim() || !password.trim()) {
       setErr('All fields are required.')
       return
     }
@@ -119,11 +117,10 @@ export default function Admin({ onNavigate }: { onNavigate: (page: Page) => void
         set(ref(db, `users/${uid}`), { companyId: cId, role: 'user', email }),
         set(ref(db, `companies/${cId}/name`), companyName.trim()),
         set(ref(db, `companies/${cId}/mode`), form.mode),
-        set(ref(db, `companies/${cId}/devices/${cameraId.trim()}`), { name: cameraName.trim() }),
       ])
 
       setSuccess(`"${companyName}" created. Login: ${email}`)
-      setForm({ companyName: '', email: '', password: '', cameraName: '', cameraId: '', mode: 'people_counter' })
+      setForm({ companyName: '', email: '', password: '', mode: 'people_counter' })
       setShowAdd(false)
     } catch (e: any) {
       setErr(e?.message ?? 'Failed to create company.')
@@ -201,17 +198,6 @@ export default function Admin({ onNavigate }: { onNavigate: (page: Page) => void
             <input style={inputStyle} type="password" value={form.password}
               onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
               placeholder="Min 6 characters" />
-          </Field>
-          <div style={{ height: 1, background: 'rgba(0,0,0,0.07)', margin: '4px 0 16px' }} />
-          <Field label="First Camera Name">
-            <input style={inputStyle} value={form.cameraName}
-              onChange={e => setForm(f => ({ ...f, cameraName: e.target.value }))}
-              placeholder="e.g. Front Door" />
-          </Field>
-          <Field label="Camera ID (used as DEVICE_ID in camera.py)">
-            <input style={inputStyle} value={form.cameraId}
-              onChange={e => setForm(f => ({ ...f, cameraId: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
-              placeholder="e.g. cam1" />
           </Field>
           {err && <div style={{ fontSize: 13, color: '#ef4444', marginBottom: 12 }}>{err}</div>}
           <button onClick={handleAddCompany} disabled={saving} style={{ width: '100%', padding: '11px', borderRadius: 9, border: 'none', background: saving ? 'rgba(29,110,244,0.5)' : 'var(--accent-blue)', color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: 'var(--font)', cursor: saving ? 'not-allowed' : 'pointer' }}>

@@ -18,6 +18,7 @@ export interface DBEvent {
   type: 'motion' | 'object' | 'person' | 'vehicle'
   label: string
   sublabel: string
+  uploadId?: string
 }
 
 // One record per vehicle pass — the core data unit for seatbelt mode
@@ -38,6 +39,7 @@ export interface DBUpload {
   filename: string
   processedAt: number
   vehicleCount: number
+  videoDate?: number   // file modification time — when the video was actually recorded
   direction?: string
 }
 

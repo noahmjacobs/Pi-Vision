@@ -302,6 +302,7 @@ def run_processing(
         unit_label     = 'Vehicle' if is_car_counter else 'Person'
         count_label    = 'vehicle' if is_car_counter else 'person'
 
+        upload_id  = uuid.uuid4().hex[:12]
         count      = 0
         last_event = ''
         pending: list = []
@@ -355,6 +356,7 @@ def run_processing(
             fb_put(f'{base}/events/{event_id}', {
                 'id': event_id, 'timestamp': ts_ms,
                 'type': count_label, 'label': label, 'sublabel': sublabel,
+                'uploadId': upload_id,
             }, token)
 
         for date_key, daily_count in daily.items():
@@ -364,6 +366,14 @@ def run_processing(
             log_cb(f'  {date_key}: {daily_count} crossings')
 
         fb_patch(f'{base}/stats', {'peopleCount': count, 'lastEvent': last_event}, token)
+
+        fb_put(f'{base}/uploads/{upload_id}', {
+            'filename':    Path(video_path).name,
+            'processedAt': int(time.time() * 1000),
+            'videoDate':   int(file_mtime * 1000),
+            'count':       count,
+            'direction':   direction,
+        }, token)
 
         size  = os.path.getsize(video_path)
         fhash = file_hash(video_path, size)

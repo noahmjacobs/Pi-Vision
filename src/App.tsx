@@ -13,7 +13,8 @@ export type Page = 'Dashboard' | 'Analytics' | 'Settings' | 'Admin'
 
 function AppInner() {
   const { user, authLoading, isAdmin, companyId, devices, deviceId } = useAuth()
-  const [page, setPage] = useState<Page>('Dashboard')
+  // Default to Analytics — Dashboard is shelved (see BottomNav.tsx for re-enable instructions)
+  const [page, setPage] = useState<Page>('Analytics')
 
   // Admin with no company selected → stay on Admin page
   useEffect(() => {

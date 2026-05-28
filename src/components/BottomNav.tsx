@@ -1,19 +1,12 @@
 import { Page } from '../App'
 import { useAuth } from '../context/AuthContext'
 
+// Dashboard tab is temporarily hidden from nav — the live-camera dashboard view is shelved
+// while we focus on the desktop processor (people counter + car counter) as the core product.
+// To re-enable: add the Dashboard item back to BASE_NAV below and restore 'Dashboard' as the
+// default page in App.tsx. All Dashboard component code in src/pages/Dashboard.tsx is intact.
+
 const BASE_NAV: { page: Page; icon: JSX.Element; label: string }[] = [
-  {
-    page: 'Dashboard',
-    label: 'Dashboard',
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="7" height="7" rx="1.5" />
-        <rect x="14" y="3" width="7" height="7" rx="1.5" />
-        <rect x="3" y="14" width="7" height="7" rx="1.5" />
-        <rect x="14" y="14" width="7" height="7" rx="1.5" />
-      </svg>
-    ),
-  },
   {
     page: 'Analytics',
     label: 'Analytics',

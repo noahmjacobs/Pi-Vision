@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { Page } from '../App'
 import { useAuth } from '../context/AuthContext'
 
-const BASE_NAV: Page[] = ['Dashboard', 'Analytics', 'Settings']
+// Dashboard removed from nav — shelved while desktop processor is the primary product.
+// Re-enable by adding 'Dashboard' back to this array and updating App.tsx default page.
+const BASE_NAV: Page[] = ['Analytics', 'Settings']
 
 interface HeaderProps {
   currentPage: Page

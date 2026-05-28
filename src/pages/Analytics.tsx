@@ -89,23 +89,26 @@ function DonutChart({ slices, total }: {
 function PeopleCounterAnalytics() {
   const { companyId, devices } = useAuth()
   const todayStr = new Date().toLocaleDateString('en-CA')
-  const [selectedDate, setSelectedDate] = useState(todayStr)
+  const [selectedDate, setSelectedDate] = useState('')
   const [selectedHour, setSelectedHour] = useState<number | null>(null)
   const [hoveredHour, setHoveredHour]   = useState<number | null>(null)
   const [hoveredDay,  setHoveredDay]    = useState<number | null>(null)
 
-  const [deviceEventsMap, setDeviceEventsMap] = useState<Record<string, DBEvent[]>>({})
-  const [deviceCountsMap, setDeviceCountsMap] = useState<Record<string, Record<string, { total?: number }>>>({})
+  const [deviceEventsMap,  setDeviceEventsMap]  = useState<Record<string, DBEvent[]>>({})
+  const [deviceCountsMap,  setDeviceCountsMap]  = useState<Record<string, Record<string, { total?: number }>>>({})
+  const [deviceUploadsMap, setDeviceUploadsMap] = useState<Record<string, Record<string, DBUpload>>>({})
 
   useEffect(() => {
     if (!companyId || !devices.length) return
-    const rawEvents: Record<string, Record<string, DBEvent>> = {}
-    const rawCounts: Record<string, Record<string, { total?: number }>> = {}
+    const rawEvents:  Record<string, Record<string, DBEvent>>            = {}
+    const rawCounts:  Record<string, Record<string, { total?: number }>> = {}
+    const rawUploads: Record<string, Record<string, DBUpload>>           = {}
     const unsubs: (() => void)[] = []
 
     devices.forEach(device => {
       const evRef = ref(db, `companies/${companyId}/devices/${device.id}/events`)
       const coRef = ref(db, `companies/${companyId}/devices/${device.id}/counts`)
+      const upRef = ref(db, `companies/${companyId}/devices/${device.id}/uploads`)
 
       unsubs.push(onValue(evRef, snap => {
         rawEvents[device.id] = snap.exists() ? snap.val() : {}
@@ -119,6 +122,11 @@ function PeopleCounterAnalytics() {
         rawCounts[device.id] = snap.exists() ? snap.val() : {}
         setDeviceCountsMap(prev => ({ ...prev, [device.id]: rawCounts[device.id] }))
       }))
+
+      unsubs.push(onValue(upRef, snap => {
+        rawUploads[device.id] = snap.exists() ? snap.val() : {}
+        setDeviceUploadsMap(prev => ({ ...prev, [device.id]: rawUploads[device.id] }))
+      }))
     })
 
     return () => unsubs.forEach(fn => fn())
@@ -126,6 +134,14 @@ function PeopleCounterAnalytics() {
 
   const allEvents = useMemo(() =>
     Object.values(deviceEventsMap).flat(), [deviceEventsMap])
+
+  const allUploads = useMemo(() => {
+    const out: Record<string, DBUpload> = {}
+    Object.values(deviceUploadsMap).forEach(uploads => {
+      Object.entries(uploads).forEach(([id, upload]) => { out[id] = upload })
+    })
+    return out
+  }, [deviceUploadsMap])
 
   const combinedCounts = useMemo(() => {
     const out: Record<string, number> = {}
@@ -141,7 +157,7 @@ function PeopleCounterAnalytics() {
     return devices.map((device, i) => {
       const events = (deviceEventsMap[device.id] ?? []).filter(ev => {
         if (ev.type !== 'person') return false
-        if (localDate(ev.timestamp) !== selectedDate) return false
+        if (selectedDate && localDate(ev.timestamp) !== selectedDate) return false
         if (selectedHour !== null && new Date(ev.timestamp).getHours() !== selectedHour) return false
         return true
       })
@@ -169,7 +185,7 @@ function PeopleCounterAnalytics() {
 
   const filteredEvents = useMemo(() =>
     allEvents
-      .filter(ev => ev.type === 'person' && localDate(ev.timestamp) === selectedDate)
+      .filter(ev => ev.type === 'person' && (!selectedDate || localDate(ev.timestamp) === selectedDate))
       .sort((a, b) => b.timestamp - a.timestamp),
     [allEvents, selectedDate])
 
@@ -184,9 +200,26 @@ function PeopleCounterAnalytics() {
   const pieTotalCount = perCamera.reduce((s, c) => s + c.count, 0)
   const displayTotal  = selectedHour !== null
     ? pieTotalCount
-    : (combinedCounts[selectedDate] ?? pieTotalCount)
+    : selectedDate ? (combinedCounts[selectedDate] ?? pieTotalCount) : pieTotalCount
 
-  const tableEvents = filteredEvents.slice(0, 50)
+  const groupedEvents = useMemo(() => {
+    const groups: Record<string, DBEvent[]> = {}
+    for (const ev of filteredEvents) {
+      const key = ev.uploadId ?? '__unknown__'
+      if (!groups[key]) groups[key] = []
+      groups[key].push(ev)
+    }
+    return groups
+  }, [filteredEvents])
+
+  const sortedGroupKeys = useMemo(() =>
+    Object.keys(groupedEvents).sort((a, b) => {
+      const aTime = allUploads[a]?.processedAt ?? Math.max(...(groupedEvents[a] ?? []).map(e => e.timestamp), 0)
+      const bTime = allUploads[b]?.processedAt ?? Math.max(...(groupedEvents[b] ?? []).map(e => e.timestamp), 0)
+      return bTime - aTime
+    }),
+  [groupedEvents, allUploads])
+
   const BAR_HEIGHT      = 80
   const WEEK_BAR_HEIGHT = 60
 
@@ -197,12 +230,12 @@ function PeopleCounterAnalytics() {
   }
 
   function exportCSV() {
-    const rows = tableEvents.map(ev => [
+    const rows = filteredEvents.map(ev => [
       new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       ev.label,
       ev.sublabel,
     ])
-    downloadCSV(`people-counter-${selectedDate}.csv`, rows, ['Time', 'Label', 'Details'])
+    downloadCSV(`people-counter-${selectedDate || 'all'}.csv`, rows, ['Time', 'Label', 'Details'])
   }
 
   return (
@@ -217,16 +250,25 @@ function PeopleCounterAnalytics() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             onClick={exportCSV}
-            disabled={tableEvents.length === 0}
-            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(29,110,244,0.3)', background: 'rgba(29,110,244,0.08)', color: 'var(--accent-blue)', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font)', cursor: tableEvents.length === 0 ? 'not-allowed' : 'pointer', opacity: tableEvents.length === 0 ? 0.5 : 1 }}
+            disabled={filteredEvents.length === 0}
+            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(29,110,244,0.3)', background: 'rgba(29,110,244,0.08)', color: 'var(--accent-blue)', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font)', cursor: filteredEvents.length === 0 ? 'not-allowed' : 'pointer', opacity: filteredEvents.length === 0 ? 0.5 : 1 }}
           >
             ↓ Export CSV
           </button>
-          <input
-            type="date" value={selectedDate} max={todayStr}
-            onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
-            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: '6px 12px', cursor: 'pointer' }}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Video date:</span>
+            <input
+              type="date" value={selectedDate} max={todayStr}
+              onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
+              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: '6px 12px', cursor: 'pointer' }}
+            />
+            {selectedDate && (
+              <button onClick={() => { setSelectedDate(''); setSelectedHour(null) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)', padding: 0 }}>
+                Show all
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -358,35 +400,53 @@ function PeopleCounterAnalytics() {
 
       <div className="glass-card analytics-table-card">
         <div className="table-title">
-          Event Log — {tableEvents.length} events
-          {filteredEvents.length > 50 ? ` (showing 50 of ${filteredEvents.length})` : ''}
+          Upload Log — {filteredEvents.length} crossing{filteredEvents.length !== 1 ? 's' : ''}
+          {sortedGroupKeys.length > 1 ? ` · ${sortedGroupKeys.length} uploads` : ''}
         </div>
-        {tableEvents.length === 0 ? (
+        {filteredEvents.length === 0 ? (
           <div style={{ color: 'var(--text-secondary)', fontSize: 14, padding: '16px 0' }}>
-            No person events recorded for {selectedDate}.
+            No crossings recorded{selectedDate ? ` for ${selectedDate}` : ''}.
           </div>
-        ) : (
-          <table className="events-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Label</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tableEvents.map(ev => (
-                <tr key={ev.id}>
-                  <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                    {new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </td>
-                  <td style={{ fontWeight: 500 }}>{ev.label}</td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{ev.sublabel}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        ) : sortedGroupKeys.map((uploadId, gi) => {
+          const events = groupedEvents[uploadId]
+          const upload = allUploads[uploadId]
+          const videoDate = upload?.videoDate
+            ? new Date(upload.videoDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : events.length > 0
+              ? new Date(Math.min(...events.map(e => e.timestamp))).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : null
+          const uploadTime = upload
+            ? new Date(upload.processedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+            : null
+          return (
+            <div key={uploadId} style={{ marginBottom: gi < sortedGroupKeys.length - 1 ? 20 : 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 0 8px 0', borderTop: gi > 0 ? '1px solid rgba(0,0,0,0.08)' : 'none', marginTop: gi > 0 ? 8 : 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {upload?.filename ?? 'Upload'}
+                </span>
+                {videoDate && <span style={{ fontSize: 12, color: 'var(--text-secondary)', flexShrink: 0 }}>Video: {videoDate}</span>}
+                {uploadTime && <span style={{ fontSize: 12, color: 'var(--text-secondary)', flexShrink: 0 }}>· Uploaded {uploadTime}</span>}
+                <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.06)', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>
+                  {events.length} crossing{events.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <table className="events-table">
+                <thead><tr><th>Time</th><th>Label</th><th>Details</th></tr></thead>
+                <tbody>
+                  {events.map(ev => (
+                    <tr key={ev.id}>
+                      <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </td>
+                      <td style={{ fontWeight: 500 }}>{ev.label}</td>
+                      <td style={{ color: 'var(--text-secondary)' }}>{ev.sublabel}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -395,23 +455,26 @@ function PeopleCounterAnalytics() {
 function CarCounterAnalytics() {
   const { companyId, devices } = useAuth()
   const todayStr = new Date().toLocaleDateString('en-CA')
-  const [selectedDate, setSelectedDate] = useState(todayStr)
+  const [selectedDate, setSelectedDate] = useState('')
   const [selectedHour, setSelectedHour] = useState<number | null>(null)
   const [hoveredHour, setHoveredHour]   = useState<number | null>(null)
   const [hoveredDay,  setHoveredDay]    = useState<number | null>(null)
 
-  const [deviceEventsMap, setDeviceEventsMap] = useState<Record<string, DBEvent[]>>({})
-  const [deviceCountsMap, setDeviceCountsMap] = useState<Record<string, Record<string, { total?: number }>>>({})
+  const [deviceEventsMap,  setDeviceEventsMap]  = useState<Record<string, DBEvent[]>>({})
+  const [deviceCountsMap,  setDeviceCountsMap]  = useState<Record<string, Record<string, { total?: number }>>>({})
+  const [deviceUploadsMap, setDeviceUploadsMap] = useState<Record<string, Record<string, DBUpload>>>({})
 
   useEffect(() => {
     if (!companyId || !devices.length) return
-    const rawEvents: Record<string, Record<string, DBEvent>> = {}
-    const rawCounts: Record<string, Record<string, { total?: number }>> = {}
+    const rawEvents:  Record<string, Record<string, DBEvent>>            = {}
+    const rawCounts:  Record<string, Record<string, { total?: number }>> = {}
+    const rawUploads: Record<string, Record<string, DBUpload>>           = {}
     const unsubs: (() => void)[] = []
 
     devices.forEach(device => {
       const evRef = ref(db, `companies/${companyId}/devices/${device.id}/events`)
       const coRef = ref(db, `companies/${companyId}/devices/${device.id}/counts`)
+      const upRef = ref(db, `companies/${companyId}/devices/${device.id}/uploads`)
 
       unsubs.push(onValue(evRef, snap => {
         rawEvents[device.id] = snap.exists() ? snap.val() : {}
@@ -425,6 +488,11 @@ function CarCounterAnalytics() {
         rawCounts[device.id] = snap.exists() ? snap.val() : {}
         setDeviceCountsMap(prev => ({ ...prev, [device.id]: rawCounts[device.id] }))
       }))
+
+      unsubs.push(onValue(upRef, snap => {
+        rawUploads[device.id] = snap.exists() ? snap.val() : {}
+        setDeviceUploadsMap(prev => ({ ...prev, [device.id]: rawUploads[device.id] }))
+      }))
     })
 
     return () => unsubs.forEach(fn => fn())
@@ -432,6 +500,14 @@ function CarCounterAnalytics() {
 
   const allEvents = useMemo(() =>
     Object.values(deviceEventsMap).flat(), [deviceEventsMap])
+
+  const allUploads = useMemo(() => {
+    const out: Record<string, DBUpload> = {}
+    Object.values(deviceUploadsMap).forEach(uploads => {
+      Object.entries(uploads).forEach(([id, upload]) => { out[id] = upload })
+    })
+    return out
+  }, [deviceUploadsMap])
 
   const combinedCounts = useMemo(() => {
     const out: Record<string, number> = {}
@@ -447,7 +523,7 @@ function CarCounterAnalytics() {
     return devices.map((device, i) => {
       const events = (deviceEventsMap[device.id] ?? []).filter(ev => {
         if (ev.type !== 'vehicle') return false
-        if (localDate(ev.timestamp) !== selectedDate) return false
+        if (selectedDate && localDate(ev.timestamp) !== selectedDate) return false
         if (selectedHour !== null && new Date(ev.timestamp).getHours() !== selectedHour) return false
         return true
       })
@@ -475,7 +551,7 @@ function CarCounterAnalytics() {
 
   const filteredEvents = useMemo(() =>
     allEvents
-      .filter(ev => ev.type === 'vehicle' && localDate(ev.timestamp) === selectedDate)
+      .filter(ev => ev.type === 'vehicle' && (!selectedDate || localDate(ev.timestamp) === selectedDate))
       .sort((a, b) => b.timestamp - a.timestamp),
     [allEvents, selectedDate])
 
@@ -490,9 +566,26 @@ function CarCounterAnalytics() {
   const pieTotalCount = perCamera.reduce((s, c) => s + c.count, 0)
   const displayTotal  = selectedHour !== null
     ? pieTotalCount
-    : (combinedCounts[selectedDate] ?? pieTotalCount)
+    : selectedDate ? (combinedCounts[selectedDate] ?? pieTotalCount) : pieTotalCount
 
-  const tableEvents = filteredEvents.slice(0, 50)
+  const groupedEvents = useMemo(() => {
+    const groups: Record<string, DBEvent[]> = {}
+    for (const ev of filteredEvents) {
+      const key = ev.uploadId ?? '__unknown__'
+      if (!groups[key]) groups[key] = []
+      groups[key].push(ev)
+    }
+    return groups
+  }, [filteredEvents])
+
+  const sortedGroupKeys = useMemo(() =>
+    Object.keys(groupedEvents).sort((a, b) => {
+      const aTime = allUploads[a]?.processedAt ?? Math.max(...(groupedEvents[a] ?? []).map(e => e.timestamp), 0)
+      const bTime = allUploads[b]?.processedAt ?? Math.max(...(groupedEvents[b] ?? []).map(e => e.timestamp), 0)
+      return bTime - aTime
+    }),
+  [groupedEvents, allUploads])
+
   const BAR_HEIGHT      = 80
   const WEEK_BAR_HEIGHT = 60
 
@@ -503,12 +596,12 @@ function CarCounterAnalytics() {
   }
 
   function exportCSV() {
-    const rows = tableEvents.map(ev => [
+    const rows = filteredEvents.map(ev => [
       new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       ev.label,
       ev.sublabel,
     ])
-    downloadCSV(`vehicle-counter-${selectedDate}.csv`, rows, ['Time', 'Label', 'Details'])
+    downloadCSV(`vehicle-counter-${selectedDate || 'all'}.csv`, rows, ['Time', 'Label', 'Details'])
   }
 
   return (
@@ -523,16 +616,25 @@ function CarCounterAnalytics() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             onClick={exportCSV}
-            disabled={tableEvents.length === 0}
-            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(29,110,244,0.3)', background: 'rgba(29,110,244,0.08)', color: 'var(--accent-blue)', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font)', cursor: tableEvents.length === 0 ? 'not-allowed' : 'pointer', opacity: tableEvents.length === 0 ? 0.5 : 1 }}
+            disabled={filteredEvents.length === 0}
+            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(29,110,244,0.3)', background: 'rgba(29,110,244,0.08)', color: 'var(--accent-blue)', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font)', cursor: filteredEvents.length === 0 ? 'not-allowed' : 'pointer', opacity: filteredEvents.length === 0 ? 0.5 : 1 }}
           >
             ↓ Export CSV
           </button>
-          <input
-            type="date" value={selectedDate} max={todayStr}
-            onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
-            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: '6px 12px', cursor: 'pointer' }}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Video date:</span>
+            <input
+              type="date" value={selectedDate} max={todayStr}
+              onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
+              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: '6px 12px', cursor: 'pointer' }}
+            />
+            {selectedDate && (
+              <button onClick={() => { setSelectedDate(''); setSelectedHour(null) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)', padding: 0 }}>
+                Show all
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -664,35 +766,53 @@ function CarCounterAnalytics() {
 
       <div className="glass-card analytics-table-card">
         <div className="table-title">
-          Event Log — {tableEvents.length} events
-          {filteredEvents.length > 50 ? ` (showing 50 of ${filteredEvents.length})` : ''}
+          Upload Log — {filteredEvents.length} crossing{filteredEvents.length !== 1 ? 's' : ''}
+          {sortedGroupKeys.length > 1 ? ` · ${sortedGroupKeys.length} uploads` : ''}
         </div>
-        {tableEvents.length === 0 ? (
+        {filteredEvents.length === 0 ? (
           <div style={{ color: 'var(--text-secondary)', fontSize: 14, padding: '16px 0' }}>
-            No vehicle events recorded for {selectedDate}.
+            No crossings recorded{selectedDate ? ` for ${selectedDate}` : ''}.
           </div>
-        ) : (
-          <table className="events-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Label</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tableEvents.map(ev => (
-                <tr key={ev.id}>
-                  <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                    {new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </td>
-                  <td style={{ fontWeight: 500 }}>{ev.label}</td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{ev.sublabel}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        ) : sortedGroupKeys.map((uploadId, gi) => {
+          const events = groupedEvents[uploadId]
+          const upload = allUploads[uploadId]
+          const videoDate = upload?.videoDate
+            ? new Date(upload.videoDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : events.length > 0
+              ? new Date(Math.min(...events.map(e => e.timestamp))).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : null
+          const uploadTime = upload
+            ? new Date(upload.processedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+            : null
+          return (
+            <div key={uploadId} style={{ marginBottom: gi < sortedGroupKeys.length - 1 ? 20 : 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 0 8px 0', borderTop: gi > 0 ? '1px solid rgba(0,0,0,0.08)' : 'none', marginTop: gi > 0 ? 8 : 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {upload?.filename ?? 'Upload'}
+                </span>
+                {videoDate && <span style={{ fontSize: 12, color: 'var(--text-secondary)', flexShrink: 0 }}>Video: {videoDate}</span>}
+                {uploadTime && <span style={{ fontSize: 12, color: 'var(--text-secondary)', flexShrink: 0 }}>· Uploaded {uploadTime}</span>}
+                <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.06)', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>
+                  {events.length} crossing{events.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <table className="events-table">
+                <thead><tr><th>Time</th><th>Label</th><th>Details</th></tr></thead>
+                <tbody>
+                  {events.map(ev => (
+                    <tr key={ev.id}>
+                      <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </td>
+                      <td style={{ fontWeight: 500 }}>{ev.label}</td>
+                      <td style={{ color: 'var(--text-secondary)' }}>{ev.sublabel}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
