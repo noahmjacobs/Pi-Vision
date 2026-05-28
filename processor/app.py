@@ -38,6 +38,7 @@ BG      = '#0f172a'
 BG2     = '#1e293b'
 BG3     = '#334155'
 ACCENT  = '#3b82f6'
+AMBER   = '#f59e0b'
 TEXT    = '#f1f5f9'
 DIM     = '#94a3b8'
 SUCCESS = '#22c55e'
@@ -51,9 +52,6 @@ FIREBASE_API_KEY = 'AIzaSyAv8s0vErAwc3KZaRF55isbKTzhgjuwGNE'
 FIREBASE_DB_URL  = 'https://pivision-28ddb-default-rtdb.firebaseio.com'
 
 def _session_path() -> Path:
-    # Session lives INSIDE the .app bundle so deleting the app wipes the login.
-    # The auto-update code copies this file to the new .app before replacing it,
-    # so updating preserves the session (user stays logged in).
     if getattr(sys, 'frozen', False):
         exe = Path(sys.executable)
         if exe.parts[-2] == 'MacOS' and exe.parts[-3] == 'Contents':
@@ -64,7 +62,6 @@ def _session_path() -> Path:
 
 SESSION_FILE = _session_path()
 
-# Use bundled model if running as packaged app, otherwise let ultralytics download it
 def _yolo_model_path() -> str:
     import sys
     if getattr(sys, 'frozen', False):
@@ -79,10 +76,7 @@ YOLO_SKIP  = 2
 
 # ── Version — bump this before every release, must match the GitHub Release tag (minus the 'v')
 # Versioning: 1.0.x — middle number stays 0 until first real paying client
-# Release process: bump here → push dev → merge main → create GitHub Release tagged v{APP_VERSION}
-# GitHub Actions auto-builds Mac .dmg and Windows .exe and attaches them to the release.
-# Existing users see an "Update Now" popup on next launch which installs silently.
-APP_VERSION   = '1.0.11'
+APP_VERSION   = '1.0.12'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
@@ -353,6 +347,7 @@ class App(ctk.CTk):
         self._tk_img = None
         self.line_pos = 0.5
         self.direction = 'down'
+        self._vehicle_dir = 'towards'
         self._processing = False
         self._log_queue: queue.Queue = queue.Queue()
         self._px = self._py = 0
@@ -634,7 +629,7 @@ class App(ctk.CTk):
         mode = s.get('mode', 'people_counter')
         is_seatbelt = mode == 'seatbelt'
         mode_label  = 'Seatbelt Compliance' if is_seatbelt else 'People Counter'
-        mode_color  = '#f59e0b' if is_seatbelt else ACCENT
+        mode_color  = AMBER if is_seatbelt else ACCENT
 
         hdr = ctk.CTkFrame(self, fg_color=BG2, corner_radius=0, height=52)
         hdr.pack(fill='x')
@@ -697,6 +692,7 @@ class App(ctk.CTk):
         self._draw_placeholder()
 
         if not is_seatbelt:
+            # People counter: direction + position controls
             ctrl = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
             ctrl.pack(fill='x', padx=20, pady=(10, 4))
             ctk.CTkLabel(ctrl, text='Direction:', font=('Helvetica', 12),
@@ -725,6 +721,20 @@ class App(ctk.CTk):
             self._slider.set(50)
             self._slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
         else:
+            # Seatbelt mode: traffic direction — towards camera (Y increases) or both
+            dir_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+            dir_row.pack(fill='x', padx=20, pady=(10, 4))
+            ctk.CTkLabel(dir_row, text='Traffic Direction:', font=('Helvetica', 12),
+                         text_color=DIM).pack(side='left')
+            self._vdir_btns: dict[str, ctk.CTkButton] = {}
+            for label, val in [('↓ Towards Camera', 'towards'), ('↔ Both', 'both')]:
+                b = ctk.CTkButton(dir_row, text=label, font=('Helvetica', 11),
+                                  width=150, height=30, fg_color=BG3, hover_color=AMBER,
+                                  text_color=DIM, command=lambda v=val: self._set_vehicle_dir(v))
+                b.pack(side='left', padx=3)
+                self._vdir_btns[val] = b
+            self._update_vdir_buttons()
+
             self._dir_btns = {}
             self._slider   = None
             self._line_label = None
@@ -757,9 +767,12 @@ class App(ctk.CTk):
 
     def _draw_placeholder(self) -> None:
         self._canvas.delete('all')
+        is_seatbelt = self.session and self.session.get('mode') == 'seatbelt'
+        text = ('Select a video to begin' if is_seatbelt else
+                'Select a video — then click anywhere on the preview to set the counting line')
         self._canvas.create_text(
             PREVIEW_W // 2, PREVIEW_H // 2,
-            text='Select a video — then click anywhere on the preview to set the counting line',
+            text=text,
             fill='#475569', font=('Helvetica', 12), width=420, justify='center',
         )
 
@@ -793,17 +806,20 @@ class App(ctk.CTk):
         nw, nh = int(w * scale), int(h * scale)
         frame = cv2.resize(self._preview_frame, (nw, nh))
 
-        axis = 'x' if self.direction in ('left', 'right') else 'y'
-        if axis == 'y':
-            ly = int(nh * self.line_pos)
-            cv2.line(frame, (0, ly), (nw, ly), (239, 68, 68), 2)
-            cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%', (8, max(ly - 6, 14)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
-        else:
-            lx = int(nw * self.line_pos)
-            cv2.line(frame, (lx, 0), (lx, nh), (239, 68, 68), 2)
-            cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%', (max(lx + 4, 4), 20),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
+        is_seatbelt = self.session and self.session.get('mode') == 'seatbelt'
+
+        if not is_seatbelt:
+            axis = 'x' if self.direction in ('left', 'right') else 'y'
+            if axis == 'y':
+                ly = int(nh * self.line_pos)
+                cv2.line(frame, (0, ly), (nw, ly), (239, 68, 68), 2)
+                cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%', (8, max(ly - 6, 14)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
+            else:
+                lx = int(nw * self.line_pos)
+                cv2.line(frame, (lx, 0), (lx, nh), (239, 68, 68), 2)
+                cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%', (max(lx + 4, 4), 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
 
         padded = Image.new('RGB', (PREVIEW_W, PREVIEW_H), (13, 18, 30))
         ox = (PREVIEW_W - nw) // 2
@@ -814,9 +830,10 @@ class App(ctk.CTk):
         self._tk_img = ImageTk.PhotoImage(padded)
         self._canvas.delete('all')
         self._canvas.create_image(0, 0, anchor='nw', image=self._tk_img)
-        self._canvas.create_text(PREVIEW_W - 8, PREVIEW_H - 8, anchor='se',
-                                  text='Click or use slider to move the counting line',
-                                  fill='#475569', font=('Helvetica', 10))
+        if not is_seatbelt:
+            self._canvas.create_text(PREVIEW_W - 8, PREVIEW_H - 8, anchor='se',
+                                      text='Click or use slider to move the counting line',
+                                      fill='#475569', font=('Helvetica', 10))
 
     def _load_locations(self) -> None:
         def fetch():
@@ -879,6 +896,17 @@ class App(ctk.CTk):
         for val, btn in self._dir_btns.items():
             if val == self.direction:
                 btn.configure(fg_color=ACCENT, text_color='white')
+            else:
+                btn.configure(fg_color=BG3, text_color=DIM)
+
+    def _set_vehicle_dir(self, val: str) -> None:
+        self._vehicle_dir = val
+        self._update_vdir_buttons()
+
+    def _update_vdir_buttons(self) -> None:
+        for val, btn in self._vdir_btns.items():
+            if val == self._vehicle_dir:
+                btn.configure(fg_color=AMBER, text_color='white')
             else:
                 btn.configure(fg_color=BG3, text_color=DIM)
 
@@ -970,6 +998,7 @@ class App(ctk.CTk):
                     location,
                     self.session['token'],
                     progress_cb, log_cb, done_cb,
+                    self._vehicle_dir,
                 ),
                 daemon=True,
             ).start()
