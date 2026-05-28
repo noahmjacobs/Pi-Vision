@@ -7,7 +7,7 @@ import { DBEvent, DBVehicleEvent, DBUpload } from '../types'
 const localDate = (ts: number) => new Date(ts).toLocaleDateString('en-CA')
 
 function downloadCSV(filename: string, rows: string[][], headers: string[]) {
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`
+  const escape = (v: string) => `"${v.replace(/"/g, '""')}`
   const lines = [headers.map(escape).join(','), ...rows.map(r => r.map(escape).join(','))]
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
   const url  = URL.createObjectURL(blob)
@@ -137,7 +137,6 @@ function PeopleCounterAnalytics() {
     return out
   }, [deviceCountsMap])
 
-  // Per-camera breakdown for selected date + optional hour
   const perCamera = useMemo(() => {
     return devices.map((device, i) => {
       const events = (deviceEventsMap[device.id] ?? []).filter(ev => {
@@ -231,7 +230,6 @@ function PeopleCounterAnalytics() {
         </div>
       </div>
 
-      {/* 7-day overview */}
       <div className="glass-card chart-card">
         <div className="chart-title">Last 7 Days</div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: WEEK_BAR_HEIGHT + 28, paddingBottom: 22, position: 'relative' }}>
@@ -271,7 +269,6 @@ function PeopleCounterAnalytics() {
         </div>
       </div>
 
-      {/* Total crossings + donut */}
       <div className="glass-card" style={{ padding: '24px 28px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 160 }}>
@@ -327,7 +324,6 @@ function PeopleCounterAnalytics() {
         </div>
       </div>
 
-      {/* Hourly bar chart */}
       <div className="glass-card chart-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div className="chart-title" style={{ marginBottom: 0 }}>Crossings by Hour</div>
@@ -360,7 +356,6 @@ function PeopleCounterAnalytics() {
         )}
       </div>
 
-      {/* Event log */}
       <div className="glass-card analytics-table-card">
         <div className="table-title">
           Event Log — {tableEvents.length} events
@@ -369,6 +364,312 @@ function PeopleCounterAnalytics() {
         {tableEvents.length === 0 ? (
           <div style={{ color: 'var(--text-secondary)', fontSize: 14, padding: '16px 0' }}>
             No person events recorded for {selectedDate}.
+          </div>
+        ) : (
+          <table className="events-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Label</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableEvents.map(ev => (
+                <tr key={ev.id}>
+                  <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                    {new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </td>
+                  <td style={{ fontWeight: 500 }}>{ev.label}</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{ev.sublabel}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CarCounterAnalytics() {
+  const { companyId, devices } = useAuth()
+  const todayStr = new Date().toLocaleDateString('en-CA')
+  const [selectedDate, setSelectedDate] = useState(todayStr)
+  const [selectedHour, setSelectedHour] = useState<number | null>(null)
+  const [hoveredHour, setHoveredHour]   = useState<number | null>(null)
+  const [hoveredDay,  setHoveredDay]    = useState<number | null>(null)
+
+  const [deviceEventsMap, setDeviceEventsMap] = useState<Record<string, DBEvent[]>>({})
+  const [deviceCountsMap, setDeviceCountsMap] = useState<Record<string, Record<string, { total?: number }>>>({})
+
+  useEffect(() => {
+    if (!companyId || !devices.length) return
+    const rawEvents: Record<string, Record<string, DBEvent>> = {}
+    const rawCounts: Record<string, Record<string, { total?: number }>> = {}
+    const unsubs: (() => void)[] = []
+
+    devices.forEach(device => {
+      const evRef = ref(db, `companies/${companyId}/devices/${device.id}/events`)
+      const coRef = ref(db, `companies/${companyId}/devices/${device.id}/counts`)
+
+      unsubs.push(onValue(evRef, snap => {
+        rawEvents[device.id] = snap.exists() ? snap.val() : {}
+        setDeviceEventsMap(prev => ({
+          ...prev,
+          [device.id]: Object.values(rawEvents[device.id]),
+        }))
+      }))
+
+      unsubs.push(onValue(coRef, snap => {
+        rawCounts[device.id] = snap.exists() ? snap.val() : {}
+        setDeviceCountsMap(prev => ({ ...prev, [device.id]: rawCounts[device.id] }))
+      }))
+    })
+
+    return () => unsubs.forEach(fn => fn())
+  }, [companyId, devices.map(d => d.id).join(',')])
+
+  const allEvents = useMemo(() =>
+    Object.values(deviceEventsMap).flat(), [deviceEventsMap])
+
+  const combinedCounts = useMemo(() => {
+    const out: Record<string, number> = {}
+    Object.values(deviceCountsMap).forEach(counts => {
+      Object.entries(counts).forEach(([date, val]) => {
+        out[date] = (out[date] ?? 0) + (val.total ?? 0)
+      })
+    })
+    return out
+  }, [deviceCountsMap])
+
+  const perCamera = useMemo(() => {
+    return devices.map((device, i) => {
+      const events = (deviceEventsMap[device.id] ?? []).filter(ev => {
+        if (ev.type !== 'vehicle') return false
+        if (localDate(ev.timestamp) !== selectedDate) return false
+        if (selectedHour !== null && new Date(ev.timestamp).getHours() !== selectedHour) return false
+        return true
+      })
+      return {
+        device,
+        count: events.length,
+        color: deviceColor(device.color, i),
+      }
+    })
+  }, [devices, deviceEventsMap, selectedDate, selectedHour])
+
+  const weekData = useMemo(() => {
+    const days = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const key   = d.toLocaleDateString('en-CA')
+      const label = d.toLocaleDateString('en-US', { weekday: 'short' })
+      days.push({ key, label, total: combinedCounts[key] ?? 0 })
+    }
+    return days
+  }, [combinedCounts])
+
+  const maxWeekly = Math.max(...weekData.map(d => d.total), 1)
+
+  const filteredEvents = useMemo(() =>
+    allEvents
+      .filter(ev => ev.type === 'vehicle' && localDate(ev.timestamp) === selectedDate)
+      .sort((a, b) => b.timestamp - a.timestamp),
+    [allEvents, selectedDate])
+
+  const hourlyData = useMemo(() => {
+    const counts = Array(24).fill(0)
+    for (const ev of filteredEvents) counts[new Date(ev.timestamp).getHours()]++
+    return counts
+  }, [filteredEvents])
+
+  const maxHourly = Math.max(...hourlyData, 1)
+
+  const pieTotalCount = perCamera.reduce((s, c) => s + c.count, 0)
+  const displayTotal  = selectedHour !== null
+    ? pieTotalCount
+    : (combinedCounts[selectedDate] ?? pieTotalCount)
+
+  const tableEvents = filteredEvents.slice(0, 50)
+  const BAR_HEIGHT      = 80
+  const WEEK_BAR_HEIGHT = 60
+
+  function fmtHour(h: number) {
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    const disp = h % 12 || 12
+    return `${disp}${ampm}`
+  }
+
+  function exportCSV() {
+    const rows = tableEvents.map(ev => [
+      new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      ev.label,
+      ev.sublabel,
+    ])
+    downloadCSV(`vehicle-counter-${selectedDate}.csv`, rows, ['Time', 'Label', 'Details'])
+  }
+
+  return (
+    <div className="analytics-page">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <div className="page-title">Analytics</div>
+          <div className="page-subtitle">
+            Vehicle crossings · all cameras{devices.length > 1 ? ` (${devices.length})` : ''}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={exportCSV}
+            disabled={tableEvents.length === 0}
+            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(29,110,244,0.3)', background: 'rgba(29,110,244,0.08)', color: 'var(--accent-blue)', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font)', cursor: tableEvents.length === 0 ? 'not-allowed' : 'pointer', opacity: tableEvents.length === 0 ? 0.5 : 1 }}
+          >
+            ↓ Export CSV
+          </button>
+          <input
+            type="date" value={selectedDate} max={todayStr}
+            onChange={e => { setSelectedDate(e.target.value); setSelectedHour(null) }}
+            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14, padding: '6px 12px', cursor: 'pointer' }}
+          />
+        </div>
+      </div>
+
+      <div className="glass-card chart-card">
+        <div className="chart-title">Last 7 Days</div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: WEEK_BAR_HEIGHT + 28, paddingBottom: 22, position: 'relative' }}>
+          {weekData.map((day, i) => (
+            <div key={day.key}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', position: 'relative', cursor: 'pointer' }}
+              onClick={() => { setSelectedDate(day.key); setSelectedHour(null) }}
+              onMouseEnter={() => setHoveredDay(i)}
+              onMouseLeave={() => setHoveredDay(null)}
+            >
+              {hoveredDay === i && day.total > 0 && (
+                <div style={{
+                  position: 'absolute', bottom: `calc(${(day.total / maxWeekly) * WEEK_BAR_HEIGHT}px + 6px)`,
+                  left: '50%', transform: 'translateX(-50%)',
+                  background: 'rgba(15,20,30,0.92)', color: '#fff',
+                  fontSize: 12, fontWeight: 700, padding: '3px 7px', borderRadius: 5,
+                  whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10,
+                }}>{day.total}</div>
+              )}
+              <div style={{
+                width: '100%', height: `${(day.total / maxWeekly) * WEEK_BAR_HEIGHT}px`,
+                minHeight: day.total > 0 ? 3 : 0,
+                background: day.key === selectedDate ? '#10b981'
+                  : day.key === todayStr ? 'rgba(16,185,129,0.7)'
+                  : hoveredDay === i ? 'rgba(16,185,129,0.55)' : 'rgba(16,185,129,0.25)',
+                borderRadius: '3px 3px 0 0', transition: 'height 0.2s, background 0.15s',
+              }} />
+            </div>
+          ))}
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', pointerEvents: 'none' }}>
+            {weekData.map(day => (
+              <div key={day.key} style={{ flex: 1, textAlign: 'center' }}>
+                <span className="bar-label">{day.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="glass-card" style={{ padding: '24px 28px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
+              Total Crossings — {selectedDate}
+              {selectedHour !== null && ` · ${fmtHour(selectedHour)}`}
+            </div>
+            <div style={{ fontSize: 48, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+              {displayTotal.toLocaleString()}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 16 }}>
+              vehicles counted across all cameras
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>Filter hour:</span>
+              <select
+                value={selectedHour ?? ''}
+                onChange={e => setSelectedHour(e.target.value === '' ? null : Number(e.target.value))}
+                style={{ background: 'rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, padding: '5px 10px', fontSize: 13, color: 'var(--text-primary)', fontFamily: 'var(--font)', cursor: 'pointer' }}
+              >
+                <option value="">All Day</option>
+                {hourlyData.map((v, h) => v > 0 && (
+                  <option key={h} value={h}>{fmtHour(h)} ({v})</option>
+                ))}
+              </select>
+              {selectedHour !== null && (
+                <button onClick={() => setSelectedHour(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)', padding: 0 }}>Clear</button>
+              )}
+            </div>
+          </div>
+          {devices.length > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+              <div style={{ position: 'relative' }}>
+                <DonutChart slices={perCamera.map(c => ({ label: c.device.name, value: c.count, color: c.color }))} total={pieTotalCount} />
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{pieTotalCount}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>total</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {perCamera.map(c => (
+                  <div key={c.device.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{c.device.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{c.count.toLocaleString()} crossings</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="glass-card chart-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div className="chart-title" style={{ marginBottom: 0 }}>Crossings by Hour</div>
+          {selectedHour !== null && (
+            <button onClick={() => setSelectedHour(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-blue)', fontFamily: 'var(--font)' }}>Clear filter</button>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: BAR_HEIGHT + 24, paddingBottom: 20, position: 'relative' }}>
+          {hourlyData.map((v, i) => (
+            <div key={i}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', position: 'relative', cursor: v > 0 ? 'pointer' : 'default' }}
+              onClick={() => v > 0 && setSelectedHour(i === selectedHour ? null : i)}
+              onMouseEnter={() => setHoveredHour(i)}
+              onMouseLeave={() => setHoveredHour(null)}
+            >
+              {hoveredHour === i && v > 0 && (
+                <div style={{ position: 'absolute', bottom: `calc(${(v / maxHourly) * BAR_HEIGHT}px + 6px)`, left: '50%', transform: 'translateX(-50%)', background: 'rgba(15,20,30,0.92)', color: '#fff', fontSize: 12, fontWeight: 700, padding: '3px 7px', borderRadius: 5, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10 }}>{v}</div>
+              )}
+              <div style={{ width: '100%', height: `${(v / maxHourly) * BAR_HEIGHT}px`, minHeight: v > 0 ? 3 : 0, background: i === selectedHour ? '#10b981' : i === new Date().getHours() && selectedDate === todayStr ? 'rgba(16,185,129,0.7)' : hoveredHour === i ? 'rgba(16,185,129,0.65)' : 'rgba(16,185,129,0.35)', borderRadius: '3px 3px 0 0', transition: 'height 0.2s, background 0.15s', outline: i === selectedHour ? '2px solid rgba(16,185,129,0.4)' : 'none' }} />
+            </div>
+          ))}
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', pointerEvents: 'none' }}>
+            {[0, 6, 12, 18, 24].map(h => <span key={h} className="bar-label">{h}h</span>)}
+          </div>
+        </div>
+        {selectedHour !== null && (
+          <div style={{ fontSize: 12, color: 'var(--accent-blue)', marginTop: 4 }}>
+            Showing breakdown for {fmtHour(selectedHour)} — click bar again or "Clear filter" to reset
+          </div>
+        )}
+      </div>
+
+      <div className="glass-card analytics-table-card">
+        <div className="table-title">
+          Event Log — {tableEvents.length} events
+          {filteredEvents.length > 50 ? ` (showing 50 of ${filteredEvents.length})` : ''}
+        </div>
+        {tableEvents.length === 0 ? (
+          <div style={{ color: 'var(--text-secondary)', fontSize: 14, padding: '16px 0' }}>
+            No vehicle events recorded for {selectedDate}.
           </div>
         ) : (
           <table className="events-table">
@@ -461,7 +762,6 @@ function SeatbeltAnalytics() {
 
   const allEvents = useMemo(() => Object.values(deviceEventsMap).flat(), [deviceEventsMap])
 
-  // Flat map of uploadId -> DBUpload across all devices
   const allUploads = useMemo(() => {
     const out: Record<string, DBUpload> = {}
     Object.values(deviceUploadsMap).forEach(uploads => {
@@ -487,7 +787,6 @@ function SeatbeltAnalytics() {
     ).sort((a, b) => b.timestamp - a.timestamp),
     [allEvents, selectedDate, selectedHour])
 
-  // Group filtered events by upload session
   const groupedEvents = useMemo(() => {
     const groups: Record<string, DBVehicleEvent[]> = {}
     for (const ev of filteredEvents) {
@@ -498,7 +797,6 @@ function SeatbeltAnalytics() {
     return groups
   }, [filteredEvents])
 
-  // Sort groups newest-first by upload processedAt (or max event timestamp as fallback)
   const sortedGroupKeys = useMemo(() => {
     return Object.keys(groupedEvents).sort((a, b) => {
       const aTime = allUploads[a]?.processedAt ?? Math.max(...(groupedEvents[a] ?? []).map(e => e.timestamp), 0)
@@ -594,7 +892,6 @@ function SeatbeltAnalytics() {
         </div>
       </div>
 
-      {/* 7-day bar */}
       <div className="glass-card chart-card">
         <div className="chart-title">Last 7 Days — Vehicles Logged</div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: WEEK_BAR_HEIGHT + 28, paddingBottom: 22, position: 'relative' }}>
@@ -614,7 +911,6 @@ function SeatbeltAnalytics() {
         </div>
       </div>
 
-      {/* Summary: total + compliance + donut */}
       <div className="glass-card" style={{ padding: '24px 28px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 180 }}>
@@ -672,7 +968,6 @@ function SeatbeltAnalytics() {
         </div>
       </div>
 
-      {/* Hourly bar */}
       <div className="glass-card chart-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div className="chart-title" style={{ marginBottom: 0 }}>Vehicles by Hour of Day</div>
@@ -695,7 +990,6 @@ function SeatbeltAnalytics() {
         </div>
       </div>
 
-      {/* Vehicle log — grouped by upload */}
       <div className="glass-card analytics-table-card">
         <div className="table-title">
           Vehicle Log — {filteredEvents.length} vehicle{filteredEvents.length !== 1 ? 's' : ''}
@@ -713,7 +1007,6 @@ function SeatbeltAnalytics() {
             : null
           return (
             <div key={uploadId} style={{ marginBottom: gi < sortedGroupKeys.length - 1 ? 20 : 0 }}>
-              {/* Upload section header */}
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
                 padding: '10px 0 8px 0',
@@ -773,7 +1066,7 @@ function SeatbeltAnalytics() {
 
 export default function Analytics() {
   const { companyMode } = useAuth()
-  return companyMode === 'seatbelt'
-    ? <SeatbeltAnalytics />
-    : <PeopleCounterAnalytics />
+  if (companyMode === 'seatbelt') return <SeatbeltAnalytics />
+  if (companyMode === 'car_counter') return <CarCounterAnalytics />
+  return <PeopleCounterAnalytics />
 }
