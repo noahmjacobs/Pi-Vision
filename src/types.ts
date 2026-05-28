@@ -15,7 +15,7 @@ export interface DBSeatbeltStats {
 export interface DBEvent {
   id: string
   timestamp: number
-  type: 'motion' | 'object' | 'person'
+  type: 'motion' | 'object' | 'person' | 'vehicle'
   label: string
   sublabel: string
 }

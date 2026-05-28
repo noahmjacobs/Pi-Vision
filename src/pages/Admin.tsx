@@ -11,7 +11,7 @@ interface AddCompanyForm {
   password: string
   cameraName: string
   cameraId: string
-  mode: 'people_counter' | 'seatbelt'
+  mode: 'people_counter' | 'car_counter' | 'seatbelt'
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -174,7 +174,7 @@ export default function Admin({ onNavigate }: { onNavigate: (page: Page) => void
           </Field>
           <Field label="Camera Mode">
             <div style={{ display: 'flex', gap: 8 }}>
-              {(['people_counter', 'seatbelt'] as const).map(m => (
+              {(['people_counter', 'car_counter', 'seatbelt'] as const).map(m => (
                 <button
                   key={m}
                   type="button"
@@ -187,7 +187,7 @@ export default function Admin({ onNavigate }: { onNavigate: (page: Page) => void
                     color: form.mode === m ? 'var(--accent-blue)' : 'var(--text-secondary)',
                   }}
                 >
-                  {m === 'people_counter' ? '🚶 People Counter' : '🚗 Seatbelt Compliance'}
+                  {m === 'people_counter' ? '🚶 People' : m === 'car_counter' ? '🚗 Cars' : '🛡️ Seatbelt'}
                 </button>
               ))}
             </div>
