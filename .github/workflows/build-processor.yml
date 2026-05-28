@@ -17,6 +17,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install Tcl/Tk (required for tkinter)
+        run: brew install python-tk@3.11
+
       - name: Install dependencies
         run: |
           cd processor
