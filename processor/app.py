@@ -43,7 +43,7 @@ from PIL import Image, ImageTk
 import customtkinter as ctk
 from ultralytics import YOLO
 
-# ── Appearance ──────────────────────────────────────────────────────────────────
+# ── Appearance ──────────────────────────────────────────────────────────────────────────────
 ctk.set_appearance_mode('dark')
 ctk.set_default_color_theme('blue')
 
@@ -62,12 +62,12 @@ PREVIEW_W = 640
 PREVIEW_H = 360
 
 
-# ── Firebase config ─────────────────────────────────────────────────────────────
+# ── Firebase config ─────────────────────────────────────────────────────────────────────────
 FIREBASE_API_KEY = 'AIzaSyAv8s0vErAwc3KZaRF55isbKTzhgjuwGNE'
 FIREBASE_DB_URL  = 'https://pivision-28ddb-default-rtdb.firebaseio.com'
 
 
-# ── Session file path ───────────────────────────────────────────────────────────
+# ── Session file path ────────────────────────────────────────────────────────────────────────
 # Mac: stored inside the .app bundle so auto-update can carry it over.
 # Windows / dev: ~/.pivision_session.json (survives .exe replacement naturally).
 def _session_path() -> Path:
@@ -82,7 +82,7 @@ def _session_path() -> Path:
 SESSION_FILE = _session_path()
 
 
-# ── YOLO model path ─────────────────────────────────────────────────────────────
+# ── YOLO model path ───────────────────────────────────────────────────────────────────────────
 def _yolo_model_path() -> str:
     if getattr(sys, 'frozen', False):
         bundled = Path(sys._MEIPASS) / 'yolov8m.pt'
@@ -95,13 +95,13 @@ YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
 
-# ── Version ─────────────────────────────────────────────────────────────────────
+# ── Version ───────────────────────────────────────────────────────────────────────────────────
 # Bump before every release. Must match the GitHub Release tag (minus the 'v').
-APP_VERSION  = '1.0.13'
+APP_VERSION  = '1.0.14'
 GITHUB_REPO  = 'noahmjacobs/pi-vision'
 
 
-# ── Firebase REST helpers ────────────────────────────────────────────────────────
+# ── Firebase REST helpers ─────────────────────────────────────────────────────────────────────────
 
 def fb_sign_in(email: str, password: str) -> dict:
     url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}'
@@ -136,7 +136,7 @@ def fb_patch(path: str, data: dict, token: str) -> None:
     r.raise_for_status()
 
 
-# ── Session persistence ──────────────────────────────────────────────────────────
+# ── Session persistence ──────────────────────────────────────────────────────────────────────────
 
 def load_session() -> dict | None:
     try:
@@ -155,7 +155,7 @@ def clear_session() -> None:
     SESSION_FILE.unlink(missing_ok=True)
 
 
-# ── Auto-update: version check ───────────────────────────────────────────────────
+# ── Auto-update: version check ─────────────────────────────────────────────────────────────────────
 
 def fetch_latest_version() -> str | None:
     """Return the latest GitHub release tag (without 'v'), or None on failure."""
@@ -173,7 +173,7 @@ def fetch_latest_version() -> str | None:
     return None
 
 
-# ── Centroid tracker ─────────────────────────────────────────────────────────────
+# ── Centroid tracker ────────────────────────────────────────────────────────────────────────────────
 # Lightweight tracker used for both people_counter and car_counter.
 # Associates detections across frames by nearest-centroid matching, assigns
 # stable IDs, and detects when an ID crosses the counting line.
@@ -255,7 +255,7 @@ class CentroidTracker:
         self.sides.pop(oid, None)
 
 
-# ── Processing pipeline (background thread) ─────────────────────────────────────
+# ── Processing pipeline (background thread) ───────────────────────────────────────────────────
 # Shared by people_counter and car_counter.
 # Goal: open the video, run YOLO on every Nth frame, track centroids, count
 # line crossings, then batch-write events + daily counts + stats to Firebase.
@@ -383,7 +383,7 @@ def run_processing(
         done_cb(False, 0)
 
 
-# ── GUI Application ──────────────────────────────────────────────────────────────
+# ── GUI Application ────────────────────────────────────────────────────────────────────────────────
 
 class App(ctk.CTk):
     def __init__(self) -> None:
@@ -415,10 +415,10 @@ class App(ctk.CTk):
             self.after(3000, self._check_for_update)
 
 
-    # ── Auto-update ──────────────────────────────────────────────────────────────
+    # ── Auto-update ──────────────────────────────────────────────────────────────────────────
     # The download URL always points to /releases/latest/download/ so the user
     # jumps straight to the current release regardless of how many versions
-    # they’ve skipped — no incremental stepping through intermediate versions.
+    # they've skipped — no incremental stepping through intermediate versions.
 
     def _check_for_update(self) -> None:
         def worker():
@@ -572,7 +572,7 @@ class App(ctk.CTk):
         self.quit()
 
 
-    # ── Session restore ───────────────────────────────────────────────────────────
+    # ── Session restore ───────────────────────────────────────────────────────────────────────────
 
     def _try_restore_session(self, saved: dict) -> None:
         self._show_loading()
@@ -592,7 +592,7 @@ class App(ctk.CTk):
         threading.Thread(target=attempt, daemon=True).start()
 
 
-    # ── Screen helpers ────────────────────────────────────────────────────────────
+    # ── Screen helpers ────────────────────────────────────────────────────────────────────────────
 
     def _clear(self) -> None:
         for w in self.winfo_children():
@@ -610,7 +610,7 @@ class App(ctk.CTk):
                      text_color=DIM).pack()
 
 
-    # ── Sign-in screen ────────────────────────────────────────────────────────────
+    # ── Sign-in screen ───────────────────────────────────────────────────────────────────────────
 
     def _show_signin(self) -> None:
         self._clear()
@@ -723,7 +723,7 @@ class App(ctk.CTk):
         threading.Thread(target=attempt, daemon=True).start()
 
 
-    # ── Main screen ───────────────────────────────────────────────────────────────
+    # ── Main screen ─────────────────────────────────────────────────────────────────────────────────
 
     def _show_main(self) -> None:
         self._clear()
@@ -886,7 +886,7 @@ class App(ctk.CTk):
         self._log_text.configure(state='disabled')
 
 
-    # ── Preview canvas helpers ────────────────────────────────────────────────────
+    # ── Preview canvas helpers ────────────────────────────────────────────────────────────────────────
 
     def _draw_placeholder(self) -> None:
         self._canvas.delete('all')
@@ -965,7 +965,7 @@ class App(ctk.CTk):
             )
 
 
-    # ── Location autocomplete ─────────────────────────────────────────────────────
+    # ── Location autocomplete ──────────────────────────────────────────────────────────────────────
 
     def _load_locations(self) -> None:
         def fetch():
@@ -1003,7 +1003,7 @@ class App(ctk.CTk):
         self._sugg_frame.pack_forget()
 
 
-    # ── Counting line controls ────────────────────────────────────────────────────
+    # ── Counting line controls ────────────────────────────────────────────────────────────────────────
 
     def _on_slider(self, val: float) -> None:
         self.line_pos = val / 100
@@ -1045,7 +1045,7 @@ class App(ctk.CTk):
                 btn.configure(fg_color=BG3, text_color=DIM)
 
 
-    # ── Run / process ─────────────────────────────────────────────────────────────
+    # ── Run / process ──────────────────────────────────────────────────────────────────────────────────
 
     def _run(self) -> None:
         if not self.video_path:
@@ -1158,7 +1158,7 @@ class App(ctk.CTk):
             ).start()
 
 
-    # ── Log polling ───────────────────────────────────────────────────────────────
+    # ── Log polling ───────────────────────────────────────────────────────────────────────────────────
 
     def _poll_logs(self) -> None:
         while True:

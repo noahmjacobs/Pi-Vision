@@ -108,6 +108,56 @@ function PeopleCounterDashboard({ onNavigate }: { onNavigate: (page: Page) => vo
   )
 }
 
+function CarCounterDashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
+  const { devicePath } = useAuth()
+  const { data: stats, loading: statsLoading } = useFirebaseValue<DBStats>(devicePath('stats'), { peopleCount: 0, lastEvent: '' })
+  const { data: camera }                       = useFirebaseValue<DBCamera>(devicePath('camera'), { piConnected: false, status: 'Offline', fps: 0, resolution: '' })
+  const { data: eventsRaw, loading: eventsLoading } = useFirebaseValue<Record<string, DBEvent>>(devicePath('events'), {} as Record<string, DBEvent>)
+
+  const [uptime, setUptime] = useState('—')
+
+  useEffect(() => {
+    if (!camera?.sessionStart) { setUptime('—'); return }
+    const start = camera.sessionStart
+    const update = () => setUptime(formatUptime(Date.now() - start))
+    update()
+    const id = setInterval(update, 1000)
+    return () => clearInterval(id)
+  }, [camera?.sessionStart])
+
+  const events: DBEvent[] = Object.values(eventsRaw).sort((a, b) => b.timestamp - a.timestamp).slice(0, 6)
+
+  return (
+    <div className="dashboard">
+      <div className="middle-row">
+        <CameraFeed />
+        <div className="right-panel">
+          <StatCard
+            label="Vehicles Counted"
+            value={(camera?.piConnected ? (stats?.peopleCount ?? 0) : 0).toLocaleString()}
+            sub="this session"
+            icon={<CarIcon color="#10b981" />}
+            iconBg="rgba(16,185,129,0.12)"
+            loading={statsLoading}
+            showReset={camera?.piConnected}
+            onReset={() => set(ref(db, devicePath('stats/peopleCount')), 0)}
+          />
+          <StatCard
+            label="Uptime"
+            value={uptime}
+            sub="session running"
+            icon={<Clock color="#f59e0b" />}
+            iconBg="rgba(245,158,11,0.12)"
+            loading={false}
+          />
+          <RecentEvents events={events} loading={eventsLoading} onSeeAll={() => onNavigate('Analytics')} />
+        </div>
+      </div>
+      <StatusBar camera={camera} />
+    </div>
+  )
+}
+
 function SeatbeltDashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const { devicePath } = useAuth()
   const { data: stats, loading: statsLoading } = useFirebaseValue<DBSeatbeltStats>(
@@ -156,7 +206,7 @@ function SeatbeltDashboard({ onNavigate }: { onNavigate: (page: Page) => void })
 
 export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const { companyMode } = useAuth()
-  return companyMode === 'seatbelt'
-    ? <SeatbeltDashboard onNavigate={onNavigate} />
-    : <PeopleCounterDashboard onNavigate={onNavigate} />
+  if (companyMode === 'seatbelt') return <SeatbeltDashboard onNavigate={onNavigate} />
+  if (companyMode === 'car_counter') return <CarCounterDashboard onNavigate={onNavigate} />
+  return <PeopleCounterDashboard onNavigate={onNavigate} />
 }
