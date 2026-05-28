@@ -109,13 +109,32 @@ def _yolo_model_path() -> str:
     return 'yolov8m.pt'
 
 YOLO_MODEL = _yolo_model_path()
+
+
+def _tracker_config_path() -> str:
+    """Find bytetrack.yaml whether running frozen (.app/.exe) or from source."""
+    if getattr(sys, 'frozen', False):
+        # Bundled by PyInstaller via collect_data_files('ultralytics')
+        bundled = Path(sys._MEIPASS) / 'ultralytics' / 'cfg' / 'trackers' / 'bytetrack.yaml'
+        if bundled.exists():
+            return str(bundled)
+    try:
+        import ultralytics
+        pkg = Path(ultralytics.__file__).parent / 'cfg' / 'trackers' / 'bytetrack.yaml'
+        if pkg.exists():
+            return str(pkg)
+    except Exception:
+        pass
+    return 'bytetrack.yaml'
+
+TRACKER_CONFIG = _tracker_config_path()
 YOLO_CONF  = 0.45
 YOLO_SKIP  = 2
 
 
 # ── Version ───────────────────────────────────────────────────────────────────────────────────
 # Bump before every release. Must match the GitHub Release tag (minus the 'v').
-APP_VERSION  = '1.0.15'
+APP_VERSION  = '1.0.16'
 GITHUB_REPO  = 'noahmjacobs/pi-vision'
 
 
@@ -351,7 +370,7 @@ def run_processing(
                 continue
 
             results = model.track(frame, classes=yolo_classes, conf=YOLO_CONF,
-                                  verbose=False, persist=True, tracker='bytetrack.yaml',
+                                  verbose=False, persist=True, tracker=TRACKER_CONFIG,
                                   iou=0.3)
             boxes     = results[0].boxes
             crossings = 0
