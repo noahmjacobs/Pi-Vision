@@ -13,10 +13,24 @@ Three modes (set per-company in Firebase under companies/{id}/mode):
   seatbelt       — analyzes front-seat seatbelt compliance (no counting line)
 
 people_counter and car_counter share the same pipeline (run_processing) and
-the same counting-line UI. The only difference is which YOLO classes are
-detected: class 0 (person) vs. classes 2/5/7 (car/bus/truck).
+the same counting-line UI. Differences:
+  - people_counter detects COCO class 0 (person)
+  - car_counter detects COCO classes 2/5/7 (car/bus/truck), uses iou=0.3 so
+    side-by-side vehicles are kept as separate detections
+
+Both use ByteTrack (built into ultralytics) for tracking across frames.
+ByteTrack assigns stable IDs that survive occlusions — if two cars overlap
+briefly, each keeps its own ID and both get counted correctly.
+
+Lane boundary sliders let the user restrict the counting line to a portion of
+the frame width (or height for left/right), so only one lane is counted.
 
 seatbelt uses a completely separate pipeline in process_seatbelt.py.
+
+--- DEV TESTING ---
+Run directly from Python — no need to build a .dmg for every code change:
+  python3 /path/to/processor/app.py
+Only build a new .dmg when shipping to real users.
 """
 
 from __future__ import annotations
@@ -88,6 +102,10 @@ def _yolo_model_path() -> str:
         bundled = Path(sys._MEIPASS) / 'yolov8m.pt'
         if bundled.exists():
             return str(bundled)
+    # When running from source, find the model next to app.py regardless of CWD
+    local = Path(__file__).parent / 'yolov8m.pt'
+    if local.exists():
+        return str(local)
     return 'yolov8m.pt'
 
 YOLO_MODEL = _yolo_model_path()
@@ -97,7 +115,7 @@ YOLO_SKIP  = 2
 
 # ── Version ───────────────────────────────────────────────────────────────────────────────────
 # Bump before every release. Must match the GitHub Release tag (minus the 'v').
-APP_VERSION  = '1.0.14'
+APP_VERSION  = '1.0.15'
 GITHUB_REPO  = 'noahmjacobs/pi-vision'
 
 
@@ -173,10 +191,10 @@ def fetch_latest_version() -> str | None:
     return None
 
 
-# ── Centroid tracker ────────────────────────────────────────────────────────────────────────────────
-# Lightweight tracker used for both people_counter and car_counter.
-# Associates detections across frames by nearest-centroid matching, assigns
-# stable IDs, and detects when an ID crosses the counting line.
+# ── Centroid tracker (kept for reference — active pipeline uses ByteTrack) ────────────────────────
+# Original lightweight tracker: nearest-centroid matching across frames.
+# Replaced by ByteTrack in run_processing because ByteTrack handles occlusions
+# (two overlapping cars) far better via Kalman-filter motion prediction.
 
 class CentroidTracker:
     def __init__(self, max_disappeared: int = 30, max_distance: int = 80) -> None:
@@ -228,13 +246,20 @@ class CentroidTracker:
                     self._register(nc)
         return self.centroids
 
-    def check_crossings(self, line_pos: int, axis: str = 'y', direction: str = 'down') -> int:
+    def check_crossings(self, line_pos: int, axis: str = 'y', direction: str = 'down',
+                        x_range: tuple | None = None) -> int:
         count = 0
         for oid, (cx, cy) in self.centroids.items():
             pos  = cy if axis == 'y' else cx
             side = 'before' if pos < line_pos else 'after'
             prev = self.sides.get(oid)
             if prev is not None and prev != side:
+                # If a lane boundary is set, only count cars whose centroid is inside it.
+                if x_range is not None:
+                    lateral = cx if axis == 'y' else cy
+                    if not (x_range[0] <= lateral <= x_range[1]):
+                        self.sides[oid] = side
+                        continue
                 if direction == 'both':
                     count += 1
                 elif direction in ('down', 'right') and prev == 'before':
@@ -269,12 +294,17 @@ def run_processing(
     video_path, company_id, device_id, line_pos, direction,
     token, progress_cb, log_cb, done_cb,
     mode: str = 'people_counter',
+    line_x_start: float = 0.0, line_x_end: float = 1.0,
 ):
     """
-    Core counting pipeline used by both people_counter and car_counter.
+    Core counting pipeline shared by people_counter and car_counter.
 
     mode='people_counter'  → detect COCO class 0 (person)
-    mode='car_counter'     → detect COCO classes 2/5/7 (car/bus/truck)
+    mode='car_counter'     → detect COCO classes 2/5/7 (car/bus/truck), iou=0.3
+
+    line_pos              → fraction (0-1) of frame height/width for the counting line
+    direction             → 'down'|'up'|'left'|'right' — only crossings in this direction count
+    line_x_start/end      → fraction (0-1) lane boundary — centroids outside this range are ignored
     """
     try:
         cap    = cv2.VideoCapture(video_path)
@@ -287,20 +317,21 @@ def run_processing(
         log_cb(f'  {width}x{height}  {fps:.0f}fps  {total} frames')
         log_cb('Loading YOLO model...')
 
-        model   = YOLO(YOLO_MODEL)
-        tracker = CentroidTracker()
-        axis    = 'x' if direction in ('left', 'right') else 'y'
-        line    = int((width if axis == 'x' else height) * line_pos)
+        is_car_counter = mode == 'car_counter'
+        yolo_classes   = [2, 5, 7] if is_car_counter else [0]
+        unit_label     = 'Vehicle' if is_car_counter else 'Person'
+        count_label    = 'vehicle' if is_car_counter else 'person'
+
+        model       = YOLO(YOLO_MODEL)
+        axis        = 'x' if direction in ('left', 'right') else 'y'
+        line        = int((width if axis == 'x' else height) * line_pos)
+        x_range     = (int(width * line_x_start), int(width * line_x_end)) if (line_x_start > 0.01 or line_x_end < 0.99) else None
+        track_sides: dict[int, str] = {}  # ByteTrack ID → which side of the line it was on last
 
         file_mtime  = os.path.getmtime(video_path)
         record_date = datetime.fromtimestamp(file_mtime, tz=timezone.utc)
 
         log_cb('Processing frames...')
-
-        is_car_counter = mode == 'car_counter'
-        yolo_classes   = [2, 5, 7] if is_car_counter else [0]
-        unit_label     = 'Vehicle' if is_car_counter else 'Person'
-        count_label    = 'vehicle' if is_car_counter else 'person'
 
         upload_id  = uuid.uuid4().hex[:12]
         count      = 0
@@ -319,14 +350,32 @@ def run_processing(
             if frame_num % YOLO_SKIP != 0:
                 continue
 
-            results   = model(frame, classes=yolo_classes, conf=YOLO_CONF, verbose=False)
-            centroids = [
-                ((int(b.xyxy[0][0]) + int(b.xyxy[0][2])) // 2,
-                 (int(b.xyxy[0][1]) + int(b.xyxy[0][3])) // 2)
-                for b in results[0].boxes
-            ]
-            tracker.update(centroids)
-            crossings = tracker.check_crossings(line, axis=axis, direction=direction)
+            results = model.track(frame, classes=yolo_classes, conf=YOLO_CONF,
+                                  verbose=False, persist=True, tracker='bytetrack.yaml',
+                                  iou=0.3)
+            boxes     = results[0].boxes
+            crossings = 0
+            if boxes is not None and boxes.id is not None:
+                for i, track_id in enumerate(boxes.id.int().tolist()):
+                    box  = boxes.xyxy[i]
+                    cx   = int((float(box[0]) + float(box[2])) / 2)
+                    cy   = int((float(box[1]) + float(box[3])) / 2)
+                    pos  = cy if axis == 'y' else cx
+                    side = 'before' if pos < line else 'after'
+                    prev = track_sides.get(track_id)
+                    if prev is not None and prev != side:
+                        if x_range is not None:
+                            lateral = cx if axis == 'y' else cy
+                            if not (x_range[0] <= lateral <= x_range[1]):
+                                track_sides[track_id] = side
+                                continue
+                        if direction == 'both':
+                            crossings += 1
+                        elif direction in ('down', 'right') and prev == 'before':
+                            crossings += 1
+                        elif direction in ('up', 'left') and prev == 'after':
+                            crossings += 1
+                    track_sides[track_id] = side
 
             if crossings > 0:
                 count += crossings
@@ -405,7 +454,9 @@ class App(ctk.CTk):
         self.video_path: str | None = None
         self._preview_frame = None
         self._tk_img = None
-        self.line_pos  = 0.5
+        self.line_pos    = 0.5
+        self.line_x_start = 0.0   # left edge of counting line (fraction 0-1)
+        self.line_x_end   = 1.0   # right edge of counting line (fraction 0-1)
         self.direction = 'down'
         self._vehicle_dir = 'towards'
         self._processing = False
@@ -849,6 +900,41 @@ class App(ctk.CTk):
             )
             self._slider.set(50)
             self._slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
+
+            # Lane boundary sliders — restrict the line to one lane, ignoring the other
+            lane_start_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+            lane_start_row.pack(fill='x', padx=20, pady=(0, 2))
+            self._lane_start_name = ctk.CTkLabel(lane_start_row, text='Lane left:', font=('Helvetica', 12),
+                         text_color=DIM, width=90, anchor='w')
+            self._lane_start_name.pack(side='left')
+            self._lane_start_label = ctk.CTkLabel(lane_start_row, text='0%',
+                                                   font=('Helvetica', 12, 'bold'),
+                                                   text_color=TEXT, width=40)
+            self._lane_start_label.pack(side='right')
+            self._lane_start_slider = ctk.CTkSlider(
+                lane_start_row, from_=0, to=90, number_of_steps=90,
+                fg_color=BG3, progress_color=GREEN, button_color=GREEN,
+                button_hover_color='#059669', command=self._on_lane_start_slider,
+            )
+            self._lane_start_slider.set(0)
+            self._lane_start_slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
+
+            lane_end_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+            lane_end_row.pack(fill='x', padx=20, pady=(0, 6))
+            self._lane_end_name = ctk.CTkLabel(lane_end_row, text='Lane right:', font=('Helvetica', 12),
+                         text_color=DIM, width=90, anchor='w')
+            self._lane_end_name.pack(side='left')
+            self._lane_end_label = ctk.CTkLabel(lane_end_row, text='100%',
+                                                 font=('Helvetica', 12, 'bold'),
+                                                 text_color=TEXT, width=40)
+            self._lane_end_label.pack(side='right')
+            self._lane_end_slider = ctk.CTkSlider(
+                lane_end_row, from_=10, to=100, number_of_steps=90,
+                fg_color=BG3, progress_color=GREEN, button_color=GREEN,
+                button_hover_color='#059669', command=self._on_lane_end_slider,
+            )
+            self._lane_end_slider.set(100)
+            self._lane_end_slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
         else:
             dir_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
             dir_row.pack(fill='x', padx=20, pady=(10, 4))
@@ -865,9 +951,15 @@ class App(ctk.CTk):
                 self._vdir_btns[val] = b
             self._update_vdir_buttons()
 
-            self._dir_btns   = {}
-            self._slider     = None
-            self._line_label = None
+            self._dir_btns          = {}
+            self._slider            = None
+            self._line_label        = None
+            self._lane_start_slider = None
+            self._lane_end_slider   = None
+            self._lane_start_label  = None
+            self._lane_end_label    = None
+            self._lane_start_name   = None
+            self._lane_end_name     = None
 
         ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x', pady=(2, 0))
 
@@ -944,18 +1036,22 @@ class App(ctk.CTk):
         is_seatbelt = self.session and self.session.get('mode') == 'seatbelt'
 
         if not is_seatbelt:
-            axis = 'x' if self.direction in ('left', 'right') else 'y'
+            axis  = 'x' if self.direction in ('left', 'right') else 'y'
+            x1    = int(nw * self.line_x_start)
+            x2    = int(nw * self.line_x_end)
             if axis == 'y':
                 ly = int(nh * self.line_pos)
-                cv2.line(frame, (0, ly), (nw, ly), (239, 68, 68), 2)
+                cv2.line(frame, (x1, ly), (x2, ly), (239, 68, 68), 2)
                 cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%',
-                            (8, max(ly - 6, 14)),
+                            (max(x1 + 4, 8), max(ly - 6, 14)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
             else:
                 lx = int(nw * self.line_pos)
-                cv2.line(frame, (lx, 0), (lx, nh), (239, 68, 68), 2)
+                y1 = int(nh * self.line_x_start)
+                y2 = int(nh * self.line_x_end)
+                cv2.line(frame, (lx, y1), (lx, y2), (239, 68, 68), 2)
                 cv2.putText(frame, f'Line  {int(self.line_pos * 100)}%',
-                            (max(lx + 4, 4), 20),
+                            (max(lx + 4, 4), max(y1 + 16, 20)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
 
         padded = Image.new('RGB', (PREVIEW_W, PREVIEW_H), (13, 18, 30))
@@ -1031,10 +1127,29 @@ class App(ctk.CTk):
         self._line_label.configure(text=f'{int(self.line_pos * 100)}%')
         self._redraw_preview()
 
+    def _on_lane_start_slider(self, val: float) -> None:
+        self.line_x_start = val / 100
+        if self._lane_start_label:
+            self._lane_start_label.configure(text=f'{int(val)}%')
+        self._redraw_preview()
+
+    def _on_lane_end_slider(self, val: float) -> None:
+        self.line_x_end = val / 100
+        if self._lane_end_label:
+            self._lane_end_label.configure(text=f'{int(val)}%')
+        self._redraw_preview()
+
     def _set_direction(self, val: str) -> None:
         self.direction = val
         self._update_dir_buttons()
         self._redraw_preview()
+        if self._lane_start_name and self._lane_end_name:
+            if val in ('left', 'right'):
+                self._lane_start_name.configure(text='Lane top:')
+                self._lane_end_name.configure(text='Lane bottom:')
+            else:
+                self._lane_start_name.configure(text='Lane left:')
+                self._lane_end_name.configure(text='Lane right:')
 
     def _update_dir_buttons(self) -> None:
         for val, btn in self._dir_btns.items():
@@ -1164,6 +1279,10 @@ class App(ctk.CTk):
                     progress_cb, log_cb, done_cb,
                     mode,
                 ),
+                kwargs={
+                    'line_x_start': self.line_x_start,
+                    'line_x_end':   self.line_x_end,
+                },
                 daemon=True,
             ).start()
 

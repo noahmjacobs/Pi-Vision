@@ -38,53 +38,68 @@ When releasing a new version, there is **exactly one place** to change:
 
 **`processor/app.py`** — find this line near the top and increment the patch number:
 ```python
-APP_VERSION   = '1.0.13'  # ← change this
+APP_VERSION   = '1.0.14'  # ← change this
 ```
 That's it. Nothing else needs to change.
 
 ---
 
 ## Current Version
-`APP_VERSION = '1.0.13'` in `processor/app.py`  
-Latest release on GitHub: v1.0.13 (user needs to create GitHub release — tag `v1.0.13`, title `PiVision Processor v1.0.13`, no files attached)
+`APP_VERSION = '1.0.15'` in `processor/app.py`
+Latest release on GitHub: v1.0.15
+
+---
+
+## Testing the Processor Without Building a .dmg
+
+**During development, never build a .dmg just to test a code change.**
+Run the app directly from Python instead — it opens the full GUI with your latest code:
+
+```bash
+python3 /Users/noahjacobs/Desktop/Pi-Vision/processor/app.py
+```
+
+Only build a new .dmg when you're ready to ship to real users (see Release Process below).
+
+**Mac SSL cert fix (one-time, if YOLO model download fails):**
+```bash
+open /Applications/Python\ 3.14/Install\ Certificates.command
+```
 
 ---
 
 ## Repo is currently PUBLIC
 Everything (code, Firebase config, processor) is in a public repo for now.
-Before launch as a real product, move to private and handle:
-- Firebase config exposure (move to env vars / backend proxy)
-- GitHub release assets (private repos require auth to download — need signed URLs or a public CDN)
-- API key rotation
+Before launch as a real product, move to private — see deferred_tasks.md in memory.
+Plan: create a separate `pi-vision-releases` public repo for download assets, then make the main repo private.
 
 ---
 
 ## What Has Been Built
 
 ### Web Dashboard (React/Firebase)
-- People counter dashboard with live counts, charts, analytics
-- Seatbelt compliance dashboard (separate view, same data structure)
-- Analytics page with donut chart (hover tooltips), date filtering, CSV export
-- Settings page:
-  - Section 1: Camera management (add/remove/rename/recolor)
-  - Section 2: Per-camera config (line position, direction, confidence, camera index)
-  - Section 3: PiVision Processor downloads (Mac + Windows buttons)
-- Auth with company isolation, admin panel for creating companies
-- Company-level `mode` field: `'people_counter'` | `'seatbelt'` — controls which dashboard/UI the whole company sees
+- Analytics page with donut chart, upload-grouped event table, video date vs upload date display, date filtering by video date, CSV export
+- Settings page: camera management, per-camera config, PiVision Processor downloads
+- Auth with company isolation, admin panel for creating companies (name + mode + login only — no camera fields)
+- Admin "Enter →" navigates to Analytics (not Dashboard)
+- **Dashboard tab is hidden from nav** — code is intact in Dashboard.tsx but shelved while desktop processor is the primary product. Re-enable by restoring it in BottomNav.tsx, Header.tsx, and App.tsx.
+- Company-level `mode` field: `'people_counter'` | `'car_counter'` | `'seatbelt'`
 
 ### PiVision Processor Desktop App (processor/app.py)
-A standalone desktop app for processing recorded video files offline. This is the main SaaS product.
+A standalone desktop GUI app for processing recorded video files offline. This is the main SaaS product.
 
 **Features:**
 - Sign in with PiVision account (one-time, session persists inside .app bundle)
-- Video file picker with frame preview
+- Video file picker with frame preview (shows middle frame of video)
 - Mode-aware UI:
-  - **People counter mode**: counting line placement (click or slider) + direction selector
-  - **Seatbelt mode**: no counting line needed — just pick video, pick location, process
+  - **People counter mode** (blue): counting line + direction + lane sliders
+  - **Car counter mode** (green): counting line + direction + lane sliders
+  - **Seatbelt mode** (amber): no counting line — just pick video, pick location, process
+- Lane boundary sliders: "Lane left/right" (for Down/Up) or "Lane top/bottom" (for Left/Right) — restrict the counting line to a specific lane, ignoring other lanes
 - Location name field with autocomplete from Firebase
 - Duplicate detection by file hash — checks across all locations company-wide
 - Processes video with YOLOv8 Medium (bundled inside the app — no separate download needed)
-- Mode badge in header: blue = People Counter, amber = Seatbelt Compliance
+- Mode badge in header: blue = People Counter, green = Car Counter, amber = Seatbelt Compliance
 - Auto-update checker: on launch checks GitHub releases API, shows popup if newer version exists
 - Auto-installer: "Update Now" downloads DMG, installs via ditto, preserves session, relaunches
 - `--just-updated` flag passed on relaunch to skip update check and prevent step-through loop
@@ -100,9 +115,18 @@ A standalone desktop app for processing recorded video files offline. This is th
 
 ### People Counter Pipeline (processor/app.py → run_processing)
 - User places counting line visually on the video frame
-- Selects direction (Down/Up/Left/Right)
-- YOLOv8 Medium detects persons, CentroidTracker tracks across frames
-- Counts line crossings, uploads events + daily counts + stats to Firebase
+- Selects direction (Down/Up/Left/Right) and optional lane boundaries
+- YOLOv8 Medium detects persons (COCO class 0)
+- **ByteTrack** (built into ultralytics) tracks persons across frames with stable IDs — handles occlusions
+- Counts line crossings: only counts if centroid moves in the selected direction, and if lane boundary is set, only if centroid is within the lane bounds
+- Uploads events + daily counts + stats + upload record to Firebase
+
+### Car Counter Pipeline (processor/app.py → run_processing, mode='car_counter')
+- Same pipeline as people counter — shared `run_processing()` function
+- Detects COCO classes 2/5/7 (car/bus/truck) instead of class 0
+- **ByteTrack** tracking with `iou=0.3` — lower IOU threshold keeps side-by-side cars as separate detections instead of merging them
+- Direction counting works correctly — Down counts approaching cars, Up counts departing cars, Left/Right for horizontal traffic. Cars going the wrong direction are NOT counted.
+- Lane sliders let you target one lane and ignore an adjacent lane in the same frame
 
 ### Seatbelt Compliance Pipeline (processor/process_seatbelt.py → run_seatbelt_processing)
 Roadside camera setup: camera on side of road or elevated position, looking at front of passing vehicles.
@@ -124,8 +148,7 @@ Roadside camera setup: camera on side of road or elevated position, looking at f
 - Architecture: Roboflow 3.0 Fast, trained from vehicle-detection checkpoint
 - Metrics: mAP@50 58.8%, Precision 71.2%, Recall 46.3%
 - 2,083 images (mixed interior/exterior footage)
-- User downloaded weights file and saved as `processor/seatbelt1.pt` — commit this file to dev
-- Class 0 = "Seat-Belt Detection" (seatbelt present) — detect_seatbelts() in process_seatbelt.py already handles class 0
+- Class 0 = "Seat-Belt Detection" (seatbelt present) — detect_seatbelts() in process_seatbelt.py handles this
 
 **Accuracy limitations:**
 - Vehicle type (car/truck/van/SUV): solid — YOLO trained on millions of vehicles
@@ -152,10 +175,6 @@ Outputs per-vehicle results + saves `_annotated.mp4` with bounding boxes drawn. 
 - Currently people counter only — no live seatbelt version
 - Shelved as main focus for now — desktop app is the primary product
 
-### CLI Scripts
-- `process.py` — headless CLI people counter, dev tool
-- `process_seatbelt.py` — imported by app.py, also usable standalone
-
 ---
 
 ## Release Process (IMPORTANT — read before releasing)
@@ -166,8 +185,8 @@ Outputs per-vehicle results + saves `_annotated.mp4` with bounding boxes drawn. 
 3. Push to dev: `git push origin dev`
 4. Merge to main (only when user says so): `git checkout main && git merge dev && git push origin main && git checkout dev`
 5. Create a new GitHub Release at github.com/noahmjacobs/pi-vision/releases/new
-   - Tag: `v1.0.14` (must match APP_VERSION with a `v` prefix)
-   - Title: `PiVision Processor v1.0.14`
+   - Tag: `v1.0.15` (must match APP_VERSION with a `v` prefix)
+   - Title: `PiVision Processor v1.0.15`
    - **Do NOT attach any files** — GitHub Actions builds them automatically
 6. GitHub Actions spins up Mac + Windows cloud machines, builds both binaries, attaches them (~15-20 min)
 7. Existing users see "Update Available" popup next time they open the app
@@ -202,24 +221,25 @@ Outputs per-vehicle results + saves `_annotated.mp4` with bounding boxes drawn. 
 ## Product Modes
 
 Company-level field: `companies/{companyId}/mode`
-- `'people_counter'` — default, people counting cameras, current full pipeline
-- `'seatbelt'` — seatbelt compliance cameras, same data structure but different labels/UI
+- `'people_counter'` — counts persons crossing a line, blue UI
+- `'car_counter'` — counts vehicles crossing a line, green UI
+- `'seatbelt'` — seatbelt compliance analysis, amber UI
 
 The processor app reads this on sign-in and shows the appropriate badge + labels.
-The web dashboard reads this and shows the appropriate view.
+The web dashboard reads this and shows the appropriate analytics view.
 Mode is set in the Admin panel when creating a company.
 
 ---
 
 ## What Still Needs To Be Done
 
-### Immediate
-- [ ] Commit seatbelt1.pt to processor/ folder: `git add processor/seatbelt1.pt && git commit -m "add seatbelt model" && git push origin dev`
-- [ ] Create GitHub release v1.0.13 (tag `v1.0.13`, title `PiVision Processor v1.0.13`, no files attached)
-- [ ] Record roadside video, run `python3 test_detection.py video.mp4` to validate vehicle detection
+### Before Next Release (v1.0.15)
+- [ ] Bump APP_VERSION to 1.0.15 in processor/app.py
+- [ ] Push dev → main → create GitHub release
 
 ### Seatbelt Model
 - [ ] Test seatbelt detection on real footage through the full desktop app
+- [ ] Record roadside video, run `python3 test_detection.py video.mp4` to validate vehicle detection
 - [ ] Eventually retrain on actual roadside footage for better accuracy
 
 ### App Signing
@@ -228,11 +248,10 @@ Mode is set in the Admin panel when creating a company.
 - [ ] **Test Windows build** — no one has actually run the .exe yet
 
 ### Infrastructure / Security
+- [ ] Make repo private (see deferred_tasks.md in memory for full plan)
 - [ ] Move Firebase config to env vars / backend proxy before private launch
-- [ ] Move repo to private, handle release asset downloads (signed URLs or CDN)
 - [ ] Rotate API keys when going private
 
 ### Nice To Have
-- [ ] Windows auto-update (current auto-update only handles Mac .dmg flow)
 - [ ] App version shown in the processor UI somewhere visible
 - [ ] Retrain seatbelt model on real roadside footage
