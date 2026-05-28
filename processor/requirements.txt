@@ -1,5 +1,4 @@
 opencv-python-headless
-firebase-admin
 ultralytics
 Pillow
 requests
