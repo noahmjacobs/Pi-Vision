@@ -30,7 +30,7 @@ from PIL import Image, ImageTk
 import customtkinter as ctk
 from ultralytics import YOLO
 
-# ── Appearance ─────────────────────────────────────────────────────────────────
+# ── Appearance ────────────────────────────────────────────────────────────────────────────────
 ctk.set_appearance_mode('dark')
 ctk.set_default_color_theme('blue')
 
@@ -47,7 +47,7 @@ DANGER  = '#ef4444'
 PREVIEW_W = 640
 PREVIEW_H = 360
 
-# ── Firebase config ────────────────────────────────────────────────────────────
+# ── Firebase config ────────────────────────────────────────────────────────────────────────────
 FIREBASE_API_KEY = 'AIzaSyAv8s0vErAwc3KZaRF55isbKTzhgjuwGNE'
 FIREBASE_DB_URL  = 'https://pivision-28ddb-default-rtdb.firebaseio.com'
 
@@ -76,12 +76,12 @@ YOLO_SKIP  = 2
 
 # ── Version — bump this before every release, must match the GitHub Release tag (minus the 'v')
 # Versioning: 1.0.x — middle number stays 0 until first real paying client
-APP_VERSION   = '1.0.12'
+APP_VERSION   = '1.0.13'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
 
-# ── Firebase REST helpers ──────────────────────────────────────────────────────
+# ── Firebase REST helpers ──────────────────────────────────────────────────────────────────────────
 def fb_sign_in(email: str, password: str) -> dict:
     url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}'
     r = requests.post(url, json={'email': email, 'password': password, 'returnSecureToken': True}, timeout=10)
@@ -115,7 +115,7 @@ def fb_patch(path: str, data: dict, token: str) -> None:
     r.raise_for_status()
 
 
-# ── Session ────────────────────────────────────────────────────────────────────
+# ── Session ────────────────────────────────────────────────────────────────────────────────────
 def load_session() -> dict | None:
     try:
         if SESSION_FILE.exists():
@@ -148,7 +148,7 @@ def fetch_latest_version() -> str | None:
     return None
 
 
-# ── Centroid tracker ───────────────────────────────────────────────────────────
+# ── Centroid tracker ────────────────────────────────────────────────────────────────────────────────
 class CentroidTracker:
     def __init__(self, max_disappeared: int = 30, max_distance: int = 80) -> None:
         self.next_id = 0
@@ -226,7 +226,7 @@ class CentroidTracker:
         self.sides.pop(oid, None)
 
 
-# ── Processing (background thread) ────────────────────────────────────────────
+# ── Processing (background thread) ────────────────────────────────────────────────────────────────────────
 def file_hash(path: str, size: int) -> str:
     return hashlib.md5(f'{Path(path).name}:{size}'.encode()).hexdigest()[:16]
 
@@ -334,7 +334,7 @@ def run_processing(video_path, company_id, device_id, line_pos, direction, token
         done_cb(False, 0)
 
 
-# ── App ────────────────────────────────────────────────────────────────────────
+# ── App ────────────────────────────────────────────────────────────────────────────────────────────
 class App(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
