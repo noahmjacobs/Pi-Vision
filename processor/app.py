@@ -81,7 +81,7 @@ YOLO_SKIP  = 2
 # Release process: bump here → push dev → merge main → create GitHub Release tagged v{APP_VERSION}
 # GitHub Actions auto-builds Mac .dmg and Windows .exe and attaches them to the release.
 # Existing users see an "Update Now" popup on next launch which installs silently.
-APP_VERSION   = '1.1.10'
+APP_VERSION   = '1.1.11'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
@@ -366,7 +366,10 @@ class App(ctk.CTk):
             self._show_signin()
 
         self._poll_logs()
-        self.after(3000, self._check_for_update)
+        # Skip update check on first launch after an auto-update — prevents step-through loop
+        # where each intermediate version triggers another download before settling on latest.
+        if '--just-updated' not in sys.argv:
+            self.after(3000, self._check_for_update)
 
     def _check_for_update(self) -> None:
         def worker():
@@ -473,8 +476,10 @@ class App(ctk.CTk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _relaunch(self, app_path: Path) -> None:
+        # Pass --just-updated so the freshly installed app skips the update check on
+        # its first launch — prevents re-prompting if the version string hasn't settled yet.
         subprocess.Popen(
-            ['bash', '-c', f'sleep 1.5 && open "{app_path}"'],
+            ['bash', '-c', f'sleep 1.5 && open "{app_path}" --args --just-updated'],
             start_new_session=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
