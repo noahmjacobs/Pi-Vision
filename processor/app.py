@@ -347,7 +347,7 @@ class App(ctk.CTk):
         self._tk_img = None
         self.line_pos = 0.5
         self.direction = 'down'
-        self._vehicle_dir = 'both'
+        self._vehicle_dir = 'towards'
         self._processing = False
         self._log_queue: queue.Queue = queue.Queue()
         self._px = self._py = 0
@@ -719,15 +719,15 @@ class App(ctk.CTk):
             self._slider.set(50)
             self._slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
         else:
-            # Seatbelt mode: traffic direction selector
+            # Seatbelt mode: traffic direction — towards camera (Y increases) or both
             dir_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
             dir_row.pack(fill='x', padx=20, pady=(10, 4))
             ctk.CTkLabel(dir_row, text='Traffic Direction:', font=('Helvetica', 12),
                          text_color=DIM).pack(side='left')
             self._vdir_btns: dict[str, ctk.CTkButton] = {}
-            for label, val in [('→ Left to Right', 'right'), ('← Right to Left', 'left'), ('↔ Both', 'both')]:
+            for label, val in [('↓ Towards Camera', 'towards'), ('↔ Both', 'both')]:
                 b = ctk.CTkButton(dir_row, text=label, font=('Helvetica', 11),
-                                  width=130, height=30, fg_color=BG3, hover_color=AMBER,
+                                  width=150, height=30, fg_color=BG3, hover_color=AMBER,
                                   text_color=DIM, command=lambda v=val: self._set_vehicle_dir(v))
                 b.pack(side='left', padx=3)
                 self._vdir_btns[val] = b
