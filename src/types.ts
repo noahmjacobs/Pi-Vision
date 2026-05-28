@@ -30,6 +30,15 @@ export interface DBVehicleEvent {
   // who is wearing a seatbelt (not who is violating)
   seatbelts: 'both' | 'driver' | 'passenger' | 'none'
   driverDistracted: boolean
+  uploadId?: string
+}
+
+// One record per video processing run — groups events in the dashboard
+export interface DBUpload {
+  filename: string
+  processedAt: number
+  vehicleCount: number
+  direction?: string
 }
 
 export interface DBCamera {
