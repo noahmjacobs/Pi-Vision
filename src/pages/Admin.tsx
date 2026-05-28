@@ -55,7 +55,7 @@ function CompanyCard({ company, onNavigate }: { company: Company; onNavigate: (p
   function enter() {
     const firstDevice = company.devices[0]
     adminViewAs(company.id, firstDevice?.id ?? '')
-    onNavigate('Dashboard')
+    onNavigate('Analytics')
   }
 
   return (
