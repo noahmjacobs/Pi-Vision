@@ -16,9 +16,10 @@ Pipeline per video:
   5. Update aggregate stats: totalVehicles, compliantVehicles, distractedVehicles
 
 Firebase schema written:
-  companies/{companyId}/devices/{deviceId}/events/{id}  ->  DBVehicleEvent
-  companies/{companyId}/devices/{deviceId}/stats         ->  DBSeatbeltStats
-  companies/{companyId}/processed/{fhash}                ->  duplicate-check record
+  companies/{companyId}/devices/{deviceId}/events/{id}     ->  DBVehicleEvent
+  companies/{companyId}/devices/{deviceId}/uploads/{upId}  ->  DBUpload
+  companies/{companyId}/devices/{deviceId}/stats           ->  DBSeatbeltStats
+  companies/{companyId}/processed/{fhash}                  ->  duplicate-check record
 
 Direction logic:
   'towards' = vehicle centroid Y increases over time (moves down the frame, approaching camera)
@@ -308,7 +309,11 @@ def run_seatbelt_processing(
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps   = cap.get(cv2.CAP_PROP_FPS) or 30
 
+        # Unique ID for this processing run — used to group events in the dashboard
+        upload_id = uuid.uuid4().hex[:12]
+
         log_cb(f'Video: {Path(video_path).name}')
+        log_cb(f'  Upload ID: {upload_id}')
         log_cb(f'  {int(cap.get(3))}x{int(cap.get(4))}  {fps:.0f}fps  {total} frames')
         dir_label = {
             'towards': 'towards camera only',
@@ -369,6 +374,7 @@ def run_seatbelt_processing(
                     'occupants':        result['occupants'],
                     'seatbelts':        result['seatbelts'],
                     'driverDistracted': result['driverDistracted'],
+                    'uploadId':         upload_id,
                 }
                 pending_events.append(event)
                 last_event = f'{result["vehicleType"].title()} · {ts_label}'
@@ -458,6 +464,14 @@ def run_seatbelt_processing(
         base = f'companies/{company_id}/devices/{device_id}'
         for event in pending_events:
             fb_put(f'{base}/events/{event["id"]}', event, token)
+
+        # Upload record — lets the dashboard group events by processing run
+        fb_put(f'{base}/uploads/{upload_id}', {
+            'filename':     Path(video_path).name,
+            'processedAt':  int(time.time() * 1000),
+            'vehicleCount': vehicles_total,
+            'direction':    vehicle_direction,
+        }, token)
 
         fb_patch(f'{base}/stats', {
             'totalVehicles':      vehicles_total,
