@@ -19,6 +19,11 @@ Firebase schema written:
   companies/{companyId}/devices/{deviceId}/events/{id}  ->  DBVehicleEvent
   companies/{companyId}/devices/{deviceId}/stats         ->  DBSeatbeltStats
   companies/{companyId}/processed/{fhash}                ->  duplicate-check record
+
+Direction logic:
+  'towards' = vehicle centroid Y increases over time (moves down the frame, approaching camera)
+  'away'    = vehicle centroid Y decreases over time (moves up the frame, driving away)
+  'both'    = count all vehicles regardless of direction
 """
 
 from __future__ import annotations
@@ -70,7 +75,9 @@ PERSON_CONF   = 0.30
 PHONE_CONF    = 0.35
 YOLO_SKIP     = 3
 
-# Minimum horizontal pixel movement to classify direction (avoids noise from parked cars)
+# Minimum vertical pixel movement to classify direction.
+# 'towards' = Y increases (car moves down screen toward camera).
+# 'away'    = Y decreases (car moves up screen away from camera).
 DIRECTION_THRESHOLD = 40
 
 
@@ -147,19 +154,19 @@ class VehicleRecord:
         self.belt_votes:    list[str] = []
         self.distracted:    int       = 0
         self.frame_count:   int       = 0
-        self.first_cx:      float | None = None
-        self.last_cx:       float        = 0.0
+        self.first_cy:      float | None = None
+        self.last_cy:       float        = 0.0
 
-    def add(self, vtype: str, occupants: int, seatbelts: str, phone: bool, cx: float = 0.0) -> None:
+    def add(self, vtype: str, occupants: int, seatbelts: str, phone: bool, cy: float = 0.0) -> None:
         self.type_votes.append(vtype)
         self.occupant_vals.append(occupants)
         self.belt_votes.append(seatbelts)
         if phone:
             self.distracted += 1
         self.frame_count += 1
-        if self.first_cx is None:
-            self.first_cx = cx
-        self.last_cx = cx
+        if self.first_cy is None:
+            self.first_cy = cy
+        self.last_cy = cy
 
     def finalize(self) -> dict | None:
         if self.frame_count < 2:
@@ -170,11 +177,12 @@ class VehicleRecord:
         )))
         seatbelts = Counter(self.belt_votes).most_common(1)[0][0] if self.belt_votes else 'none'
         distracted = self.frame_count > 0 and (self.distracted / self.frame_count) > 0.25
-        dx = self.last_cx - (self.first_cx if self.first_cx is not None else self.last_cx)
-        if dx > DIRECTION_THRESHOLD:
-            movement = 'right'
-        elif dx < -DIRECTION_THRESHOLD:
-            movement = 'left'
+        # Positive dy = centroid moved down the frame = approaching camera = 'towards'
+        dy = self.last_cy - (self.first_cy if self.first_cy is not None else self.last_cy)
+        if dy > DIRECTION_THRESHOLD:
+            movement = 'towards'
+        elif dy < -DIRECTION_THRESHOLD:
+            movement = 'away'
         else:
             movement = 'stationary'
         return {
@@ -233,7 +241,7 @@ class VehicleTracker:
                     self.centroids[oid]   = (cx, cy)
                     self.disappeared[oid] = 0
                     vtype, occ, belt, phone = detections[ni][2:6]
-                    self.records[oid].add(vtype, occ, belt, phone, cx)
+                    self.records[oid].add(vtype, occ, belt, phone, cy)
                     used_ex.add(best_j)
                     used_new.add(ni)
 
@@ -259,7 +267,7 @@ class VehicleTracker:
         self.centroids[self.next_id]   = (cx, cy)
         self.disappeared[self.next_id] = 0
         rec = VehicleRecord()
-        rec.add(vtype, occ, belt, phone, cx)
+        rec.add(vtype, occ, belt, phone, cy)
         self.records[self.next_id] = rec
         self.next_id += 1
 
@@ -293,7 +301,7 @@ def run_seatbelt_processing(
     progress_cb,
     log_cb,
     done_cb,
-    vehicle_direction: str = 'both',
+    vehicle_direction: str = 'towards',
 ):
     try:
         cap   = cv2.VideoCapture(video_path)
@@ -302,7 +310,11 @@ def run_seatbelt_processing(
 
         log_cb(f'Video: {Path(video_path).name}')
         log_cb(f'  {int(cap.get(3))}x{int(cap.get(4))}  {fps:.0f}fps  {total} frames')
-        dir_label = {'right': 'left→right only', 'left': 'right→left only', 'both': 'both directions'}
+        dir_label = {
+            'towards': 'towards camera only',
+            'away':    'away from camera only',
+            'both':    'both directions',
+        }
         log_cb(f'  Traffic direction filter: {dir_label.get(vehicle_direction, vehicle_direction)}')
         log_cb('Loading detection model...')
 
@@ -327,7 +339,7 @@ def run_seatbelt_processing(
         def process_finalized(finalized_list: list[dict]) -> None:
             nonlocal vehicles_total, vehicles_compliant, vehicles_distracted, vehicles_skipped, last_event
             for result in finalized_list:
-                # Direction filter — skip vehicles moving the wrong way
+                # Direction filter — skip vehicles not moving toward/away from camera as configured
                 if vehicle_direction != 'both':
                     movement = result.get('movement', 'stationary')
                     if movement != vehicle_direction:
