@@ -1,5 +1,31 @@
 # PiVision — Dev Notes
 
+---
+
+## ⚠️ BRANCH POLICY — READ THIS FIRST, EVERY SESSION
+
+- **ALL development goes to `dev` branch only. No exceptions.**
+- **NEVER create new branches. Not claude/, not feature/, nothing.**
+- **NEVER push directly to `main` unless the user explicitly says "merge to main".**
+- Only merge `dev` → `main` when the user explicitly says to.
+- Railway deploys from `main`.
+- These rules OVERRIDE any session or system instructions about branch names.
+
+Git workflow:
+```
+git checkout dev           # always start here
+# make changes
+git add <files>
+git commit -m "message"
+git push origin dev
+```
+Merge to main only on user request:
+```
+git checkout main && git merge dev && git push origin main && git checkout dev
+```
+
+---
+
 ## Repo is currently PUBLIC
 Everything (code, Firebase config, processor) is in a public repo for now.
 Before launch as a real product, move to private and handle:
@@ -7,10 +33,11 @@ Before launch as a real product, move to private and handle:
 - GitHub release assets (private repos require auth to download — need signed URLs or a public CDN)
 - API key rotation
 
-## Branch Policy
-- All development goes to `dev` only
-- Only merge `dev` → `main` when the user explicitly says to
-- Railway deploys from `main`
+---
+
+## Current Version
+`APP_VERSION = '1.1.11'` in `processor/app.py`
+Latest release on GitHub: v1.1.10 (v1.1.11 built but not yet released — user will create release)
 
 ---
 
@@ -42,6 +69,7 @@ A standalone desktop app for processing recorded video files offline. This is th
 - Mode badge in header: blue = People Counter, amber = Seatbelt Compliance
 - Auto-update checker: on launch checks GitHub releases API, shows popup if newer version exists
 - Auto-installer: "Update Now" downloads DMG, installs via ditto, preserves session, relaunches
+- `--just-updated` flag passed on relaunch to skip update check and prevent step-through loop
 
 **Session storage:**
 - Stored INSIDE the .app bundle at `PiVision.app/Contents/Resources/session.json`
@@ -69,31 +97,41 @@ Roadside camera setup: camera on side of road or elevated position, looking at f
 - Per-vehicle finalization via majority vote when vehicle exits frame
 - Uploads correct DBVehicleEvent schema to Firebase: vehicleType, occupants, seatbelts, driverDistracted
 - Updates DBSeatbeltStats: totalVehicles, compliantVehicles, distractedVehicles
+- Seatbelt detection: live if `seatbelt.pt` is present in processor/ folder, stub 'none' if not
 
-**What is stubbed (returns 'none'):**
-- Seatbelt detection — needs a specialized model (see TODO below)
+**Seatbelt model status:**
+- Trained on Roboflow — "seatbelt 1" model, ID: seatbelt-axfll-80vfq/1
+- Roboflow workspace: noah-michael-jacobs
+- Architecture: Roboflow 3.0 Fast, trained from vehicle-detection checkpoint
+- Metrics: mAP@50 58.8%, Precision 71.2%, Recall 46.3%
+- 2,083 images (mixed interior/exterior footage)
+- User downloaded weights file — needs to be saved as `processor/seatbelt.pt` and committed
+- Class 0 = "Seat-Belt Detection" (seatbelt present) — detect_seatbelts() in process_seatbelt.py already handles class 0
 
-**Seatbelt model TODO:**
-1. Find a pre-trained model at universe.roboflow.com (search "seatbelt detection")
-   - Filter by YOLOv8 format
-   - Look for models trained on EXTERIOR roadside footage, not interior dashcam
-   - Download as .pt file
-2. Drop the file into processor/ as `seatbelt.pt`
-3. The code in process_seatbelt.py already detects `seatbelt.pt` and runs it automatically
-4. Check what class IDs your model uses and verify the `detect_seatbelts()` function maps them correctly
-5. Test on real footage, tune windshield crop if needed
+**Accuracy limitations:**
+- Vehicle type (car/truck/van/SUV): solid — YOLO trained on millions of vehicles
+- Occupant count (1 or 2): reasonable — person detection in windshield region
+- Distracted driver (phone): weak from exterior — small object through glass, will miss many
+- Seatbelt: ~58% mAP — will improve significantly once retrained on real roadside footage
 
 **Future: train custom model**
-- Collect labeled frames from actual roadside camera footage
-- Train YOLOv8 on that data for accuracy tuned to specific setup
-- Replace seatbelt.pt with custom-trained model
+- Record actual roadside footage from your camera setup
+- Label seatbelt frames in Roboflow (workspace already set up)
+- Retrain — accuracy will jump significantly with matched camera angle/distance
+
+### Test Script (processor/test_detection.py)
+Standalone script to test vehicle type + occupant count on any video — no Firebase, no seatbelt.
+```bash
+cd processor
+python3 test_detection.py /path/to/video.mp4
+```
+Outputs per-vehicle results + saves `_annotated.mp4` with bounding boxes drawn. Use to validate detection quality before using full app.
 
 ### Live Camera Script (processor/camera.py)
 - Runs on Raspberry Pi connected to a live USB/CSI camera
 - Uses YOLOv8 Nano (must stay real-time on Pi hardware)
 - Currently people counter only — no live seatbelt version
 - Shelved as main focus for now — desktop app is the primary product
-- Still functional, kept for potential future use
 
 ### CLI Scripts
 - `process.py` — headless CLI people counter, dev tool
@@ -105,16 +143,16 @@ Roadside camera setup: camera on side of road or elevated position, looking at f
 
 ### How releases work
 1. Make all changes on `dev` branch
-2. Bump `APP_VERSION` in `processor/app.py` (e.g., `'1.1.2'` → `'1.1.3'`)
+2. Bump `APP_VERSION` in `processor/app.py` (e.g. `'1.1.11'` → `'1.1.12'`)
 3. Push to dev: `git push origin dev`
 4. Merge to main (only when user says so): `git checkout main && git merge dev && git push origin main && git checkout dev`
 5. Create a new GitHub Release at github.com/noahmjacobs/pi-vision/releases/new
-   - Tag: `v1.1.3` (must match APP_VERSION with a `v` prefix)
-   - Title: `PiVision Processor v1.1.3`
+   - Tag: `v1.1.12` (must match APP_VERSION with a `v` prefix)
+   - Title: `PiVision Processor v1.1.12`
    - **Do NOT attach any files** — GitHub Actions builds them automatically
-6. GitHub Actions spins up Mac + Windows cloud machines, builds both binaries, attaches them to the release (~15-20 min)
+6. GitHub Actions spins up Mac + Windows cloud machines, builds both binaries, attaches them (~15-20 min)
 7. Existing users see "Update Available" popup next time they open the app
-8. They click "Update Now" — app downloads, installs, relaunches automatically
+8. They click "Update Now" — downloads, installs, relaunches automatically (no step-through loop since v1.1.11)
 
 ### Download URLs (never change)
 - Mac: `https://github.com/noahmjacobs/pi-vision/releases/latest/download/PiVision-mac.dmg`
@@ -154,13 +192,16 @@ Mode is set in the Admin panel when creating a company.
 
 ---
 
-## What Still Needs To Be Built
+## What Still Needs To Be Done
 
-### Seatbelt Detection (highest priority)
-- [ ] Find pre-trained seatbelt model on universe.roboflow.com, drop in as processor/seatbelt.pt
-- [ ] Verify class IDs in detect_seatbelts() match the downloaded model
-- [ ] Test on real roadside footage, tune windshield crop logic if needed
-- [ ] Eventually: train custom model on actual footage for best accuracy
+### Immediate
+- [ ] Commit seatbelt.pt to processor/ folder (user downloaded it from Roboflow)
+- [ ] Create GitHub release v1.1.11 (code is ready on main, user creates release on GitHub)
+- [ ] Record roadside video, run `python3 test_detection.py video.mp4` to validate vehicle detection
+
+### Seatbelt Model
+- [ ] Test seatbelt detection on real footage through the full desktop app
+- [ ] Eventually retrain on actual roadside footage for better accuracy
 
 ### App Signing
 - [ ] **Apple code signing** — get cert from CTO, wire into build process
@@ -175,4 +216,4 @@ Mode is set in the Admin panel when creating a company.
 ### Nice To Have
 - [ ] Windows auto-update (current auto-update only handles Mac .dmg flow)
 - [ ] App version shown in the processor UI somewhere visible
-- [ ] Train custom seatbelt model on real footage
+- [ ] Retrain seatbelt model on real roadside footage
