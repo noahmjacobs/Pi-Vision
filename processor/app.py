@@ -81,7 +81,8 @@ YOLO_SKIP  = 2
 # Release process: bump here → push dev → merge main → create GitHub Release tagged v{APP_VERSION}
 # GitHub Actions auto-builds Mac .dmg and Windows .exe and attaches them to the release.
 # Existing users see an "Update Now" popup on next launch which installs silently.
-APP_VERSION   = '1.1.11'
+# Versioning: 1.0.x — middle number stays 0 until first real paying client
+APP_VERSION   = '1.0.11'
 GITHUB_REPO   = 'noahmjacobs/pi-vision'
 DOWNLOAD_URL  = 'https://github.com/noahmjacobs/pi-vision/releases/latest'
 
