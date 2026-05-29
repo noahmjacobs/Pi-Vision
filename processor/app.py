@@ -213,7 +213,7 @@ DEFAULT_FRAME_SKIP = 2
 
 # ── Version ───────────────────────────────────────────────────────────────────────────────────
 # Bump before every release. Must match the GitHub Release tag (minus the 'v').
-APP_VERSION  = '1.0.24'
+APP_VERSION  = '1.0.25'
 GITHUB_REPO  = 'noahmjacobs/pi-vision'
 
 
@@ -397,6 +397,7 @@ def run_processing(
     yolo_model_label: str = DEFAULT_MODEL,
     yolo_skip: int = DEFAULT_FRAME_SKIP,
     frame_cb=None,
+    cancel_event=None,
 ):
     """
     Core counting pipeline shared by people_counter and car_counter.
@@ -451,6 +452,11 @@ def run_processing(
         preview_interval = max(1, total // 360) if total > 0 else 30
 
         while True:
+            if cancel_event is not None and cancel_event.is_set():
+                log_cb('Cancelled by user.')
+                cap.release()
+                done_cb(False, count, cancelled=True)
+                return
             ret, frame = cap.read()
             if not ret:
                 break
@@ -598,6 +604,7 @@ class App(ctk.CTk):
         self.direction = 'down'
         self._vehicle_dir = 'towards'
         self._processing = False
+        self._cancel_event: threading.Event | None = None
         self._log_queue:   queue.Queue = queue.Queue()
         self._frame_queue: queue.Queue = queue.Queue(maxsize=2)
         self._px = self._py = 0
@@ -1615,6 +1622,10 @@ class App(ctk.CTk):
             self._loc_entry.focus_set()
             return
         if self._processing:
+            # Button clicked while processing — treat as cancel
+            if self._cancel_event is not None:
+                self._cancel_event.set()
+                self._run_btn.configure(state='disabled', text='Cancelling...')
             return
 
         size    = os.path.getsize(self.video_path)
@@ -1657,7 +1668,12 @@ class App(ctk.CTk):
                 return
 
         self._processing = True
-        self._run_btn.configure(state='disabled', text='Processing...')
+        self._cancel_event = threading.Event()
+        self._run_btn.configure(
+            state='normal', text='✕  Cancel',
+            fg_color='#c0392b', hover_color='#e74c3c',
+            border_color='#e74c3c',
+        )
         self._progress.set(0)
         self._status_label.configure(text='', text_color=DIM)
 
@@ -1693,16 +1709,25 @@ class App(ctk.CTk):
         def log_cb(msg: str) -> None:
             self._log_queue.put(msg)
 
-        def done_cb(success: bool, count: int) -> None:
+        def done_cb(success: bool, count: int, cancelled: bool = False) -> None:
             def _update():
                 self._processing = False
-                self._run_btn.configure(state='normal', text='▷  Process Video')
-                self._status_label.configure(
-                    text=f'Done — {count} {unit} written to dashboard' if success
-                         else 'Processing failed',
-                    text_color=SUCCESS if success else DANGER,
+                self._cancel_event = None
+                self._run_btn.configure(
+                    state='normal', text='▷  Process Video',
+                    fg_color='#3f98ff', hover_color='#5ab7ff',
+                    border_color='#7cc8ff',
                 )
+                if cancelled:
+                    msg, color = 'Cancelled', DIM
+                elif success:
+                    msg, color = f'Done — {count} {unit} written to dashboard', SUCCESS
+                else:
+                    msg, color = 'Processing failed', DANGER
+                self._status_label.configure(text=msg, text_color=color)
             self.after(0, _update)
+
+        cancel_event = self._cancel_event
 
         if is_seatbelt:
             from process_seatbelt import run_seatbelt_processing
@@ -1716,6 +1741,7 @@ class App(ctk.CTk):
                     progress_cb, log_cb, done_cb,
                     self._vehicle_dir,
                 ),
+                kwargs={'cancel_event': cancel_event},
                 daemon=True,
             ).start()
         else:
@@ -1738,6 +1764,7 @@ class App(ctk.CTk):
                     'yolo_model_label': yolo_model_label,
                     'yolo_skip': yolo_skip,
                     'frame_cb':       self._queue_preview_frame,
+                    'cancel_event':   cancel_event,
                 },
                 daemon=True,
             ).start()
