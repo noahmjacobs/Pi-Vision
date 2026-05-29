@@ -310,6 +310,7 @@ def run_processing(
     token, progress_cb, log_cb, done_cb,
     mode: str = 'people_counter',
     line_x_start: float = 0.0, line_x_end: float = 1.0,
+    video_start_ts: float | None = None,
 ):
     """
     Core counting pipeline shared by people_counter and car_counter.
@@ -320,6 +321,7 @@ def run_processing(
     line_pos              → fraction (0-1) of frame height/width for the counting line
     direction             → 'down'|'up'|'left'|'right' — only crossings in this direction count
     line_x_start/end      → fraction (0-1) lane boundary — centroids outside this range are ignored
+    video_start_ts        → Unix timestamp of the video recording start (from user input or file mtime)
     """
     try:
         cap    = cv2.VideoCapture(video_path)
@@ -343,8 +345,9 @@ def run_processing(
         x_range     = (int(width * line_x_start), int(width * line_x_end)) if (line_x_start > 0.01 or line_x_end < 0.99) else None
         track_sides: dict[int, str] = {}  # ByteTrack ID → which side of the line it was on last
 
-        file_mtime  = os.path.getmtime(video_path)
-        record_date = datetime.fromtimestamp(file_mtime, tz=timezone.utc)
+        # Base timestamp: use manually entered date/time if provided, else fall back to file mtime
+        file_mtime = os.path.getmtime(video_path)
+        base_ts    = video_start_ts if video_start_ts is not None else file_mtime
 
         log_cb('Processing frames...')
 
@@ -394,10 +397,9 @@ def run_processing(
 
             if crossings > 0:
                 count += crossings
-                frame_dt = (
-                    record_date.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-                    + frame_num / fps
-                )
+                # frame_dt = when this crossing happened in real time
+                # base_ts is when the video recording started (manual input or file mtime)
+                frame_dt = base_ts + frame_num / fps
                 ts_ms    = int(frame_dt * 1000)
                 date_key = datetime.fromtimestamp(frame_dt).strftime('%Y-%m-%d')
                 ts_label = datetime.fromtimestamp(frame_dt).strftime('%H:%M')
@@ -434,9 +436,10 @@ def run_processing(
         fb_put(f'{base}/uploads/{upload_id}', {
             'filename':    Path(video_path).name,
             'processedAt': int(time.time() * 1000),
-            'videoDate':   int(file_mtime * 1000),
-            'count':       count,
+            'videoDate':   int(base_ts * 1000),
+            'vehicleCount': count,
             'direction':   direction,
+            'location':    device_id,
         }, token)
 
         size  = os.path.getsize(video_path)
@@ -493,6 +496,8 @@ class App(ctk.CTk):
         self._px = self._py = 0
         self._pw = PREVIEW_W
         self._ph = PREVIEW_H
+        self._date_var: ctk.StringVar | None = None
+        self._time_var: ctk.StringVar | None = None
 
         saved = load_session()
         if saved and saved.get('refreshToken'):
@@ -884,6 +889,26 @@ class App(ctk.CTk):
                                           font=('Helvetica', 11), text_color=DIM)
         self._video_label.pack(side='left', padx=14)
 
+        # Video start date/time — pre-filled from file mtime, editable by user
+        dt_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        dt_row.pack(fill='x', padx=20, pady=(0, 10))
+        ctk.CTkLabel(dt_row, text='Video start:', font=('Helvetica', 12),
+                     text_color=DIM).pack(side='left')
+        self._date_var = ctk.StringVar()
+        ctk.CTkEntry(
+            dt_row, textvariable=self._date_var, font=('Helvetica', 12),
+            fg_color=BG2, text_color=TEXT, border_color=BG3,
+            placeholder_text='YYYY-MM-DD', width=130, height=32,
+        ).pack(side='left', padx=(10, 6))
+        self._time_var = ctk.StringVar()
+        ctk.CTkEntry(
+            dt_row, textvariable=self._time_var, font=('Helvetica', 12),
+            fg_color=BG2, text_color=TEXT, border_color=BG3,
+            placeholder_text='HH:MM', width=80, height=32,
+        ).pack(side='left')
+        ctk.CTkLabel(dt_row, text='(edit to correct if the file date is wrong)',
+                     font=('Helvetica', 10), text_color=DIM).pack(side='left', padx=(10, 0))
+
         canvas_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         canvas_wrap.pack(fill='x', padx=20)
         self._canvas = tk.Canvas(
@@ -1041,6 +1066,16 @@ class App(ctk.CTk):
             return
         self.video_path = path
         self._video_label.configure(text=Path(path).name, text_color=TEXT)
+        # Pre-fill date/time from file modification time — user can override if needed
+        try:
+            mtime = os.path.getmtime(path)
+            dt    = datetime.fromtimestamp(mtime)
+            if self._date_var is not None:
+                self._date_var.set(dt.strftime('%Y-%m-%d'))
+            if self._time_var is not None:
+                self._time_var.set(dt.strftime('%H:%M'))
+        except Exception:
+            pass
         self._load_preview()
 
     def _load_preview(self) -> None:
@@ -1261,6 +1296,19 @@ class App(ctk.CTk):
         is_seatbelt = mode == 'seatbelt'
         unit        = 'vehicles' if mode in ('seatbelt', 'car_counter') else 'crossings'
 
+        # Parse manually entered video start date/time
+        video_start_ts: float | None = None
+        if self._date_var is not None:
+            date_str = self._date_var.get().strip()
+            time_str = (self._time_var.get().strip() if self._time_var else '') or '00:00'
+            if date_str:
+                try:
+                    video_start_ts = datetime.strptime(
+                        f'{date_str} {time_str}', '%Y-%m-%d %H:%M'
+                    ).timestamp()
+                except ValueError:
+                    pass  # bad format → fall back to file mtime inside run_processing
+
         def progress_cb(frac: float, count: int) -> None:
             def _update():
                 self._progress.set(frac)
@@ -1309,8 +1357,9 @@ class App(ctk.CTk):
                     mode,
                 ),
                 kwargs={
-                    'line_x_start': self.line_x_start,
-                    'line_x_end':   self.line_x_end,
+                    'line_x_start':   self.line_x_start,
+                    'line_x_end':     self.line_x_end,
+                    'video_start_ts': video_start_ts,
                 },
                 daemon=True,
             ).start()

@@ -39,8 +39,9 @@ export interface DBUpload {
   filename: string
   processedAt: number
   vehicleCount: number
-  videoDate?: number   // file modification time — when the video was actually recorded
+  videoDate?: number   // when the video was actually recorded (manual override or file mtime)
   direction?: string
+  location?: string    // location name as entered in the desktop app (device_id)
 }
 
 export interface DBCamera {

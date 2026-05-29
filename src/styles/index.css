@@ -714,6 +714,31 @@ body {
   gap: 20px;
 }
 
+/* KPI cards — 4-column row */
+.analytics-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+/* Two-column charts row */
+.analytics-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+/* KPI card inner spacing */
+.kpi-card {
+  padding: 20px 22px;
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--glass-shadow-lg);
+}
+
 .page-title {
   font-size: 24px;
   font-weight: 700;
@@ -1042,6 +1067,16 @@ body {
   }
 }
 
+/* ─── Analytics responsive (≤ 900px) ────────── */
+@media (max-width: 900px) {
+  .analytics-kpi-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .analytics-charts-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ─── Mobile (≤ 640px) ───────────────────────── */
 @media (max-width: 640px) {
 
@@ -1123,6 +1158,16 @@ body {
   /* ── Analytics ── */
   .analytics-grid {
     grid-template-columns: 1fr;
+  }
+  .analytics-kpi-row {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .analytics-charts-row {
+    grid-template-columns: 1fr;
+  }
+  .kpi-card {
+    padding: 14px 16px;
   }
 
   /* ── Alerts: tighten layout ── */
