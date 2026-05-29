@@ -3,12 +3,13 @@ import { Page } from '../App'
 import { useAuth } from '../context/AuthContext'
 
 // Dashboard removed from nav — shelved while desktop processor is the primary product.
-// Re-enable by adding 'Dashboard' back to this array and updating App.tsx default page.
 const BASE_NAV: Page[] = ['Analytics', 'Settings']
 
 interface HeaderProps {
   currentPage: Page
   onNavigate: (page: Page) => void
+  isDark: boolean
+  onToggleDark: () => void
 }
 
 function formatTime(d: Date) {
@@ -19,7 +20,26 @@ function formatTime(d: Date) {
   return `${h}:${m.toString().padStart(2, '0')} ${ampm}`
 }
 
-export default function Header({ currentPage, onNavigate }: HeaderProps) {
+function SunIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+    </svg>
+  )
+}
+
+function MoonIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  )
+}
+
+export default function Header({ currentPage, onNavigate, isDark, onToggleDark }: HeaderProps) {
   const { companyName, signOut, isAdmin } = useAuth()
   const navItems: Page[] = isAdmin ? [...BASE_NAV, 'Admin'] : BASE_NAV
   const [time, setTime] = useState(formatTime(new Date()))
@@ -35,14 +55,10 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
         <div className="logo-dot" />
         <span className="logo-text">PiVision</span>
         {companyName && (
-          <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 400, marginLeft: 4 }}>
+          <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 400, marginLeft: 4 }}>
             · {companyName}
           </span>
         )}
-        <div className="live-badge">
-          <div className="live-dot" />
-          <span className="live-text">Live</span>
-        </div>
       </div>
 
       <nav className="header-nav" aria-label="Desktop navigation">
@@ -57,8 +73,28 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
         ))}
       </nav>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, justifyContent: 'flex-end' }}>
         <div className="header-time">{time}</div>
+
+        {/* Dark mode toggle */}
+        <button
+          onClick={onToggleDark}
+          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{
+            width: 34, height: 34,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.06)',
+            border: '1px solid rgba(0,0,0,0.08)',
+            borderRadius: 8, cursor: 'pointer',
+            color: 'var(--text-secondary)',
+            transition: 'background 0.15s, color 0.15s',
+            flexShrink: 0,
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.10)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.06)')}
+        >
+          {isDark ? <SunIcon /> : <MoonIcon />}
+        </button>
 
         <button
           onClick={signOut}
@@ -71,7 +107,10 @@ export default function Header({ currentPage, onNavigate }: HeaderProps) {
             color: 'var(--text-secondary)',
             cursor: 'pointer',
             fontFamily: 'var(--font)',
+            transition: 'background 0.15s',
           }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.05)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
         >
           Sign out
         </button>

@@ -26,8 +26,16 @@ function downloadCSV(filename: string, rows: string[][], headers: string[]) {
   URL.revokeObjectURL(url)
 }
 
+// Refined palette — distinct but not garish, works in light and dark mode
 export const PALETTE = [
-  '#1d6ef4', '#a855f7', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16',
+  '#3b82f6', // blue
+  '#8b5cf6', // violet
+  '#14b8a6', // teal
+  '#f59e0b', // amber
+  '#ef4444', // red
+  '#06b6d4', // cyan
+  '#a78bfa', // lavender
+  '#fb923c', // orange
 ]
 export function deviceColor(color: string | undefined, index: number) {
   return color ?? PALETTE[index % PALETTE.length]

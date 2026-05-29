@@ -40,6 +40,24 @@
   --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
+/* ─── Dark mode ──────────────────────────────── */
+[data-theme="dark"] {
+  --bg-gradient-start: #080c14;
+  --bg-gradient-end:   #0c1120;
+  --glass-bg:          rgba(255, 255, 255, 0.045);
+  --glass-bg-strong:   rgba(255, 255, 255, 0.08);
+  --glass-border:      rgba(255, 255, 255, 0.08);
+  --glass-shadow:      0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 4px rgba(0, 0, 0, 0.3);
+  --glass-shadow-lg:   0 8px 40px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --text-primary:      #eef2ff;
+  --text-secondary:    #7c8db0;
+  --text-tertiary:     #4a5570;
+  --accent-blue-light: rgba(59, 130, 246, 0.15);
+}
+
+[data-theme="dark"] input[type="date"] { color-scheme: dark; }
+[data-theme="dark"] select             { color-scheme: dark; }
+
 html, body {
   height: 100%;
   font-family: var(--font);
@@ -52,6 +70,7 @@ body {
   background-attachment: fixed;
   min-height: 100vh;
   color: var(--text-primary);
+  transition: background 0.3s, color 0.3s;
 }
 
 #root {
@@ -82,6 +101,7 @@ body {
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow);
+  transition: background 0.2s, box-shadow 0.2s, transform 0.2s, border-color 0.2s;
 }
 
 .glass-card-strong {
@@ -98,7 +118,7 @@ body {
   background: var(--glass-bg-strong);
   backdrop-filter: var(--blur-strong);
   -webkit-backdrop-filter: var(--blur-strong);
-  border-bottom: 1px solid rgba(255,255,255,0.7);
+  border-bottom: 1px solid var(--glass-border);
   box-shadow: 0 1px 0 rgba(0,0,0,0.06), var(--glass-shadow);
   padding: 0 32px;
   height: 60px;
@@ -108,6 +128,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
+  transition: background 0.3s, border-color 0.3s;
 }
 
 .header-logo {

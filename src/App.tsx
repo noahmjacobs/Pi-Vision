@@ -11,7 +11,7 @@ import DevicePicker from './pages/DevicePicker'
 
 export type Page = 'Dashboard' | 'Analytics' | 'Settings' | 'Admin'
 
-function AppInner() {
+function AppInner({ isDark, onToggleDark }: { isDark: boolean; onToggleDark: () => void }) {
   const { user, authLoading, isAdmin, companyId, devices, deviceId } = useAuth()
   // Default to Analytics — Dashboard is shelved (see BottomNav.tsx for re-enable instructions)
   const [page, setPage] = useState<Page>('Analytics')
@@ -23,7 +23,7 @@ function AppInner() {
 
   if (authLoading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div className="logo-dot" />
           <span className="logo-text">PiVision</span>
@@ -39,7 +39,7 @@ function AppInner() {
 
   return (
     <div className="app-root">
-      <Header currentPage={page} onNavigate={setPage} />
+      <Header currentPage={page} onNavigate={setPage} isDark={isDark} onToggleDark={onToggleDark} />
       <main className="main-content">
         {page === 'Dashboard' && companyId && <Dashboard onNavigate={setPage} />}
         {page === 'Analytics' && companyId && <Analytics />}
@@ -52,9 +52,18 @@ function AppInner() {
 }
 
 export default function App() {
+  const [isDark, setIsDark] = useState(() => {
+    try { return localStorage.getItem('pv_theme') === 'dark' } catch { return false }
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
+    try { localStorage.setItem('pv_theme', isDark ? 'dark' : 'light') } catch {}
+  }, [isDark])
+
   return (
     <AuthProvider>
-      <AppInner />
+      <AppInner isDark={isDark} onToggleDark={() => setIsDark(d => !d)} />
     </AuthProvider>
   )
 }
