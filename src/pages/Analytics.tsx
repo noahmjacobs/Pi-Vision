@@ -105,7 +105,7 @@ function DonutChart({ slices, total }: {
             fill="none"
             stroke={sl.color}
             strokeWidth={hovered === i ? sw + 5 : sw}
-            strokeDasharray={`${dash} ${circ}`}
+            strokeDasharray={`${dash} ${circ - dash}`}
             strokeDashoffset={circ * (0.25 - off)}
             style={{ cursor: 'pointer', transition: 'stroke-width 0.15s', transformOrigin: `${size / 2}px ${size / 2}px` }}
             onMouseEnter={() => setHovered(i)}
@@ -568,45 +568,50 @@ function CounterAnalytics({ cfg }: { cfg: CounterConfig }) {
 
       {/* ── Location breakdown (only if > 1 location) ──────────────────────── */}
       {devices.length > 1 && pieTotalCount > 0 && (
-        <div className="glass-card" style={{ padding: '20px 24px' }}>
+        <div className="glass-card" style={{ padding: '22px 26px' }}>
           <div className="chart-title">By Location</div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 28, flexWrap: 'wrap' }}>
-            {/* Only pass slices with actual data — zero-value slices break the donut geometry */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 36, flexWrap: 'wrap' }}>
+            {/* Only pass slices with actual data — zero-value slices break the SVG geometry */}
             <DonutChart
               slices={perLocation.filter(c => c.count > 0).map(c => ({ label: c.device.name ?? c.device.id, value: c.count, color: c.color }))}
               total={pieTotalCount}
             />
-            {/* Two-column legend — only show locations with crossings */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(160px, 1fr))',
-              gap: '2px 12px',
-              alignContent: 'start',
-              flex: 1,
-            }}>
-              {perLocation.filter(c => c.count > 0).map(c => (
-                <button
-                  key={c.device.id}
-                  onClick={() => setSelectedLocation(c.device.id === selectedLocation ? '' : c.device.id)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    background: selectedLocation === c.device.id ? 'rgba(0,0,0,0.04)' : 'none',
-                    border: selectedLocation === c.device.id ? '1px solid rgba(0,0,0,0.08)' : '1px solid transparent',
-                    borderRadius: 7, padding: '6px 10px', cursor: 'pointer',
-                    fontFamily: 'var(--font)', textAlign: 'left', transition: 'background 0.15s',
-                  }}
-                >
-                  <div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {c.device.name ?? c.device.id}
+            {/* Location rows — only show locations that have crossings */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minWidth: 240 }}>
+              {perLocation.filter(c => c.count > 0).sort((a, b) => b.count - a.count).map(c => {
+                const pct = Math.round(c.count / pieTotalCount * 100)
+                const isSelected = selectedLocation === c.device.id
+                return (
+                  <button
+                    key={c.device.id}
+                    onClick={() => setSelectedLocation(isSelected ? '' : c.device.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      background: isSelected ? 'rgba(0,0,0,0.04)' : 'none',
+                      border: isSelected ? `1px solid ${c.color}40` : '1px solid transparent',
+                      borderRadius: 10, padding: '8px 12px', cursor: 'pointer',
+                      fontFamily: 'var(--font)', textAlign: 'left', transition: 'background 0.15s',
+                      width: '100%',
+                    }}
+                  >
+                    <div style={{ width: 11, height: 11, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.device.name ?? c.device.id}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: c.color, flexShrink: 0, marginLeft: 8 }}>
+                          {c.count.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-tertiary)' }}>{pct}%</span>
+                        </span>
+                      </div>
+                      {/* Progress bar */}
+                      <div style={{ height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.07)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, borderRadius: 2, background: c.color, transition: 'width 0.3s' }} />
+                      </div>
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                      {c.count.toLocaleString()} · {Math.round(c.count / pieTotalCount * 100)}%
-                    </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
