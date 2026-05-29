@@ -4,6 +4,27 @@ A running log of what was built each session. Most recent at the top.
 
 ---
 
+## v1.0.18 — 2026-05-28
+
+### Fix: ByteTrack not working in bundled .app (root cause found)
+
+**Root cause:** `ultralytics/trackers/utils/matching.py` has a bare `import scipy` at
+the top of the file — not inside a try/except. The PyInstaller spec had `scipy` in the
+`excludes` list to keep bundle size down. So when ByteTrack tried to load its matching
+module, scipy import failed immediately, the whole tracker crashed silently, and the app
+showed "0% · 0 vehicles" without ever moving.
+
+**Fixes in `PiVision.spec`:**
+- Removed `scipy` from `excludes` — ByteTrack needs it at import time even though `lap` does the actual computation
+- Added `collect_submodules('ultralytics')` to hidden imports — ensures ByteTrack tracker submodules are bundled (they're dynamically loaded and PyInstaller can't detect them via static analysis)
+- Added `lap` to hidden imports — the linear assignment solver used by ByteTrack
+- Added `scipy`, `scipy.spatial`, `scipy.spatial.distance`, `scipy.optimize` to hidden imports — explicit bundling as a safety net
+
+**Fix in `app.py`:**
+- Exception handler now writes full Python traceback to `~/Desktop/PiVision_error.log` — makes future bundled-app failures diagnosable without a terminal
+
+---
+
 ## v1.0.15 — 2026-05-28
 
 ### Car Counter Improvements

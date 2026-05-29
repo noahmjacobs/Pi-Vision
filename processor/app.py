@@ -130,7 +130,7 @@ YOLO_SKIP  = 2
 
 # ── Version ───────────────────────────────────────────────────────────────────────────────────
 # Bump before every release. Must match the GitHub Release tag (minus the 'v').
-APP_VERSION  = '1.0.17'
+APP_VERSION  = '1.0.18'
 GITHUB_REPO  = 'noahmjacobs/pi-vision'
 
 
@@ -453,7 +453,21 @@ def run_processing(
         done_cb(True, count)
 
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
         log_cb(f'Error: {e}')
+        log_cb('(See PiVision_error.log on your Desktop for full details)')
+        # Write full traceback to ~/Desktop/PiVision_error.log so it's readable
+        # even in the bundled .app where there's no terminal output.
+        try:
+            log_path = Path.home() / 'Desktop' / 'PiVision_error.log'
+            log_path.write_text(
+                f'PiVision v{APP_VERSION} — processing error\n'
+                f'Video: {video_path}\n\n'
+                f'{tb}\n'
+            )
+        except Exception:
+            pass
         done_cb(False, 0)
 
 

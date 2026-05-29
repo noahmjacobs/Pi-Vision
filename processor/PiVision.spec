@@ -37,7 +37,13 @@ else:
 
 hidden = []
 hidden += collect_submodules('customtkinter')
+hidden += collect_submodules('ultralytics')   # ensures ByteTrack tracker modules are bundled
 hidden += ['PIL._tkinter_finder', 'pkg_resources.py2_warn']
+# lap is used by ByteTrack for linear assignment (ultralytics.trackers.utils.matching)
+hidden += ['lap']
+# scipy is imported unconditionally at the top of ultralytics/trackers/utils/matching.py
+# so it MUST be included even though lap handles the actual work
+hidden += ['scipy', 'scipy.spatial', 'scipy.spatial.distance', 'scipy.optimize']
 
 a = Analysis(
     ['app.py', 'process_seatbelt.py'],
@@ -48,7 +54,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['notebook', 'scipy', 'pandas'],
+    excludes=['notebook', 'pandas'],   # scipy removed — ByteTrack needs it at import time
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
