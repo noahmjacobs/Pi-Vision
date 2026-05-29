@@ -130,7 +130,7 @@ YOLO_SKIP  = 2
 
 # ── Version ───────────────────────────────────────────────────────────────────────────────────
 # Bump before every release. Must match the GitHub Release tag (minus the 'v').
-APP_VERSION  = '1.0.18'
+APP_VERSION  = '1.0.19'
 GITHUB_REPO  = 'noahmjacobs/pi-vision'
 
 
