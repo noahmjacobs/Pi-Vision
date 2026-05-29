@@ -605,6 +605,7 @@ class App(ctk.CTk):
         self._vehicle_dir = 'towards'
         self._processing = False
         self._cancel_event: threading.Event | None = None
+        self._clear_video_btn: ctk.CTkButton | None = None
         self._log_queue:   queue.Queue = queue.Queue()
         self._frame_queue: queue.Queue = queue.Queue(maxsize=2)
         self._px = self._py = 0
@@ -1096,7 +1097,15 @@ class App(ctk.CTk):
                       command=self._pick_video).pack(side='left')
         self._video_label = ctk.CTkLabel(vpick, text='No video selected',
                                           font=('Helvetica', 12), text_color=TEXT)
-        self._video_label.pack(side='left', padx=16)
+        self._video_label.pack(side='left', padx=(16, 4))
+        self._clear_video_btn = ctk.CTkButton(
+            vpick, text='✕', font=('Helvetica', 11, 'bold'),
+            fg_color='transparent', hover_color=HOVER, text_color=DIM,
+            width=24, height=24, corner_radius=12,
+            command=self._clear_video,
+        )
+        self._clear_video_btn.pack(side='left', padx=(0, 8))
+        self._clear_video_btn.pack_forget()  # hidden until a video is selected
         self._skip_var = ctk.StringVar(value=str(DEFAULT_FRAME_SKIP))
         ctk.CTkOptionMenu(
             vpick, variable=self._skip_var,
@@ -1306,6 +1315,7 @@ class App(ctk.CTk):
             return
         self.video_path = path
         self._video_label.configure(text=Path(path).name, text_color=TEXT)
+        self._clear_video_btn.pack(side='left', padx=(0, 8))
         try:
             mtime = os.path.getmtime(path)
             dt    = datetime.fromtimestamp(mtime)
@@ -1325,6 +1335,7 @@ class App(ctk.CTk):
             return
         self.video_path = path
         self._video_label.configure(text=Path(path).name, text_color=TEXT)
+        self._clear_video_btn.pack(side='left', padx=(0, 8))
         # Pre-fill date/time from file modification time — user can override if needed
         try:
             mtime = os.path.getmtime(path)
@@ -1338,6 +1349,13 @@ class App(ctk.CTk):
         except Exception:
             pass
         self._load_preview()
+
+    def _clear_video(self) -> None:
+        self.video_path = None
+        self._video_label.configure(text='No video selected', text_color=DIM)
+        self._clear_video_btn.pack_forget()
+        # Clear preview canvas
+        self._canvas.delete('all')
 
     def _load_preview(self) -> None:
         cap   = cv2.VideoCapture(self.video_path)
