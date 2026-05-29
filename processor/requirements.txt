@@ -4,3 +4,4 @@ Pillow
 requests
 customtkinter
 tkinterdnd2
+tkcalendar

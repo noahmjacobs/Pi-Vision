@@ -145,7 +145,7 @@ YOLO_SKIP  = 2
 
 # ── Version ───────────────────────────────────────────────────────────────────────────────────
 # Bump before every release. Must match the GitHub Release tag (minus the 'v').
-APP_VERSION  = '1.0.22'
+APP_VERSION  = '1.0.23'
 GITHUB_REPO  = 'noahmjacobs/pi-vision'
 
 
@@ -909,16 +909,30 @@ class App(ctk.CTk):
             width=260, height=36,
         )
         self._loc_entry.pack(side='left', padx=(10, 0))
+        # ▼ dropdown button — shows all saved locations
+        ctk.CTkButton(
+            loc_row, text='▼', width=30, height=36,
+            fg_color=BG2, hover_color=BG3, text_color=DIM,
+            border_color=BG3, border_width=1, font=('Helvetica', 10),
+            command=self._show_all_locations,
+        ).pack(side='left', padx=(2, 0))
 
         # ── Video start date/time — optional, right of location ──────────────
         ctk.CTkLabel(loc_row, text='Date:', font=('Helvetica', 11),
-                     text_color=DIM).pack(side='left', padx=(18, 0))
+                     text_color=DIM).pack(side='left', padx=(14, 0))
         self._date_var = ctk.StringVar()
         ctk.CTkEntry(
             loc_row, textvariable=self._date_var, font=('Helvetica', 11),
             fg_color=BG2, text_color=TEXT, border_color=BG3,
-            placeholder_text='YYYY-MM-DD', width=116, height=32,
+            placeholder_text='YYYY-MM-DD', width=112, height=32,
         ).pack(side='left', padx=(6, 0))
+        # 📅 calendar picker button
+        ctk.CTkButton(
+            loc_row, text='📅', width=32, height=32,
+            fg_color=BG2, hover_color=BG3, text_color=TEXT,
+            border_color=BG3, border_width=1, font=('Helvetica', 13),
+            command=self._show_calendar,
+        ).pack(side='left', padx=(2, 0))
 
         _hours   = [f'{h:02d}' for h in range(24)]
         _minutes = [f'{m:02d}' for m in range(0, 60, 5)]
@@ -1023,14 +1037,14 @@ class App(ctk.CTk):
             self._lane_start_name.pack(side='left', padx=(8, 0))
             self._lane_start_slider = ctk.CTkSlider(
                 lane_row, from_=0, to=90, number_of_steps=90,
-                fg_color=BG3, progress_color=GREEN, button_color=GREEN,
+                fg_color=BG3, progress_color=BG3, button_color=GREEN,
                 button_hover_color='#059669', command=self._on_lane_start_slider,
             )
             self._lane_start_slider.set(0)
             self._lane_start_slider.pack(side='left', fill='x', expand=True, padx=(4, 4))
             self._lane_end_slider = ctk.CTkSlider(
                 lane_row, from_=10, to=100, number_of_steps=90,
-                fg_color=BG3, progress_color=GREEN, button_color=GREEN,
+                fg_color=BG3, progress_color=BG3, button_color=GREEN,
                 button_hover_color='#059669', command=self._on_lane_end_slider,
             )
             self._lane_end_slider.set(100)
@@ -1255,6 +1269,77 @@ class App(ctk.CTk):
     def _pick_location(self, loc: str) -> None:
         self._loc_var.set(loc)
         self._sugg_frame.pack_forget()
+
+    def _show_all_locations(self) -> None:
+        """▼ button — show every saved location as a dropdown."""
+        for w in self._sugg_frame.winfo_children():
+            w.destroy()
+        locs = self._existing_locations
+        if not locs:
+            return
+        self._sugg_frame.pack(fill='x', padx=30, pady=(0, 4))
+        for loc in locs[:10]:
+            ctk.CTkButton(
+                self._sugg_frame, text=loc, font=('Helvetica', 11),
+                fg_color='transparent', hover_color=BG3, text_color=TEXT,
+                anchor='w', height=28,
+                command=lambda l=loc: self._pick_location(l),
+            ).pack(fill='x', padx=4, pady=1)
+
+    def _show_calendar(self) -> None:
+        """📅 button — open a date-picker popup."""
+        try:
+            from tkcalendar import Calendar as _Cal
+        except ImportError:
+            return
+
+        popup = ctk.CTkToplevel(self)
+        popup.title('Pick a Date')
+        popup.geometry('290x270')
+        popup.resizable(False, False)
+        popup.configure(fg_color=BG2)
+        popup.grab_set()
+        popup.lift()
+
+        # Try to pre-select whatever date is already in the field
+        import tkinter.font as tkfont
+        init_date = None
+        try:
+            init_date = datetime.strptime(self._date_var.get().strip(), '%Y-%m-%d')
+        except Exception:
+            init_date = datetime.now()
+
+        cal = _Cal(
+            popup, selectmode='day',
+            year=init_date.year, month=init_date.month, day=init_date.day,
+            date_pattern='y-mm-dd',
+            background=BG2, foreground=TEXT,
+            headersbackground=ACCENT, headersforeground='white',
+            normalbackground=BG2, normalforeground=TEXT,
+            weekendbackground=BG2, weekendforeground=TEXT,
+            selectbackground=ACCENT, selectforeground='white',
+            othermonthbackground=BG3, othermonthforeground=DIM,
+            bordercolor=BG3,
+        )
+        cal.pack(padx=14, pady=(14, 6))
+
+        btn_row = ctk.CTkFrame(popup, fg_color='transparent')
+        btn_row.pack(pady=(0, 14))
+
+        def _pick():
+            self._date_var.set(cal.get_date())
+            popup.destroy()
+
+        def _today():
+            self._date_var.set(datetime.now().strftime('%Y-%m-%d'))
+            popup.destroy()
+
+        ctk.CTkButton(btn_row, text='Today', width=90, height=32,
+                      fg_color=BG3, hover_color='#d5d5da', text_color=TEXT,
+                      font=('Helvetica', 12), command=_today).pack(side='left', padx=5)
+        ctk.CTkButton(btn_row, text='Select', width=90, height=32,
+                      fg_color=ACCENT, hover_color='#0051a8', text_color='white',
+                      font=('Helvetica', 12), command=_pick).pack(side='left', padx=5)
 
 
     # ── Counting line controls ────────────────────────────────────────────────────────────────────────

@@ -11,6 +11,10 @@ try:
     datas += collect_data_files('tkinterdnd2')
 except Exception:
     pass
+try:
+    datas += collect_data_files('tkcalendar')
+except Exception:
+    pass
 datas += [('icon.icns', '.'), ('icon.ico', '.'), ('logo.png', '.')]
 
 # Bundle YOLO model weights so users never need to download them on first run
