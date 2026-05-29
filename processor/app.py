@@ -58,19 +58,20 @@ import customtkinter as ctk
 from ultralytics import YOLO
 
 # ── Appearance ──────────────────────────────────────────────────────────────────────────────
-ctk.set_appearance_mode('dark')
+ctk.set_appearance_mode('light')
 ctk.set_default_color_theme('blue')
 
-BG      = '#0f172a'
-BG2     = '#1e293b'
-BG3     = '#334155'
-ACCENT  = '#3b82f6'   # blue — people counter
-AMBER   = '#f59e0b'   # amber — seatbelt mode
-GREEN   = '#10b981'   # emerald — car counter
-TEXT    = '#f1f5f9'
-DIM     = '#94a3b8'
-SUCCESS = '#22c55e'
-DANGER  = '#ef4444'
+BG      = '#f5f5f7'   # Apple window background (light gray)
+BG2     = '#ffffff'   # cards, panels, header
+BG3     = '#e5e5ea'   # borders, separators, inactive buttons
+BG_DARK = '#1c1c1e'   # video canvas + log (stays dark — Apple system dark)
+ACCENT  = '#0071e3'   # Apple blue — people counter
+AMBER   = '#ff9500'   # Apple orange — seatbelt mode
+GREEN   = '#34c759'   # Apple green — car counter
+TEXT    = '#1d1d1f'   # Apple near-black
+DIM     = '#6e6e73'   # Apple secondary text
+SUCCESS = '#34c759'   # Apple green — process button
+DANGER  = '#ff3b30'   # Apple red
 
 PREVIEW_W = 640
 PREVIEW_H = 360
@@ -567,8 +568,8 @@ class App(ctk.CTk):
             ),
             width=150,
         ).pack(side='left', padx=6)
-        ctk.CTkButton(btn_row, text='Not Now', fg_color=BG3, hover_color=BG3,
-                      command=dialog.destroy, width=100).pack(side='left', padx=6)
+        ctk.CTkButton(btn_row, text='Not Now', fg_color=BG3, hover_color='#d5d5da',
+                      text_color=DIM, command=dialog.destroy, width=100).pack(side='left', padx=6)
 
     def _start_auto_update(self, dialog, status_label, progress_bar, btn_row) -> None:
         for w in btn_row.winfo_children():
@@ -766,8 +767,9 @@ class App(ctk.CTk):
         self._email_var   = ctk.StringVar()
         self._email_entry = ctk.CTkEntry(
             inner, textvariable=self._email_var, font=('Helvetica', 13),
-            fg_color=BG3, text_color=TEXT, border_color=BG3,
+            fg_color=BG3, text_color=TEXT, border_color='#c7c7cc',
             border_width=1, height=42, placeholder_text='you@company.com',
+            placeholder_text_color=DIM,
         )
         self._email_entry.pack(fill='x', pady=(5, 14))
 
@@ -776,7 +778,7 @@ class App(ctk.CTk):
         self._pw_var = ctk.StringVar()
         pw = ctk.CTkEntry(
             inner, textvariable=self._pw_var, font=('Helvetica', 13),
-            fg_color=BG3, text_color=TEXT, border_color=BG3,
+            fg_color=BG3, text_color=TEXT, border_color='#c7c7cc',
             border_width=1, height=42, show='•',
         )
         pw.pack(fill='x', pady=(5, 18))
@@ -887,7 +889,7 @@ class App(ctk.CTk):
                      text_color='white', fg_color=mode_color, corner_radius=6,
                      padx=9, pady=3).pack(side='left', pady=18)
         ctk.CTkButton(hdr, text='Sign Out', font=('Helvetica', 10),
-                      fg_color=BG3, hover_color='#475569', text_color=DIM, width=80, height=28,
+                      fg_color=BG3, hover_color='#d5d5da', text_color=DIM, width=80, height=28,
                       corner_radius=8, command=self._sign_out).pack(side='right', padx=14)
         ctk.CTkLabel(hdr, text=f'{s["companyName"]}  ·  {s["email"]}',
                      font=('Helvetica', 10), text_color=DIM).pack(side='right', padx=(0, 6))
@@ -916,7 +918,7 @@ class App(ctk.CTk):
         vpick = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         vpick.pack(fill='x', padx=20, pady=14)
         ctk.CTkButton(vpick, text='Browse for Video', font=('Helvetica', 12),
-                      fg_color=ACCENT, hover_color='#2563eb', text_color='white',
+                      fg_color=ACCENT, hover_color='#0051a8', text_color='white',
                       height=36, command=self._pick_video).pack(side='left')
         self._video_label = ctk.CTkLabel(vpick, text='No video selected',
                                           font=('Helvetica', 11), text_color=DIM)
@@ -946,7 +948,7 @@ class App(ctk.CTk):
         canvas_wrap.pack(fill='x', padx=20)
         self._canvas = tk.Canvas(
             canvas_wrap, width=PREVIEW_W, height=PREVIEW_H,
-            bg='#111827', highlightthickness=1, highlightbackground=BG3,
+            bg=BG_DARK, highlightthickness=1, highlightbackground=BG3,
             cursor='crosshair' if not is_seatbelt else 'arrow',
         )
         self._canvas.pack()
@@ -965,7 +967,7 @@ class App(ctk.CTk):
                                ('← Left', 'left'), ('→ Right', 'right')]:
                 b = ctk.CTkButton(
                     ctrl, text=label, font=('Helvetica', 11),
-                    width=80, height=30, fg_color=BG3, hover_color=ACCENT,
+                    width=80, height=30, fg_color=BG3, hover_color='#d5d5da',
                     text_color=DIM, command=lambda v=val: self._set_direction(v),
                 )
                 b.pack(side='left', padx=3)
@@ -1031,7 +1033,7 @@ class App(ctk.CTk):
             for label, val in [('↓ Towards Camera', 'towards'), ('↔ Both', 'both')]:
                 b = ctk.CTkButton(
                     dir_row, text=label, font=('Helvetica', 11),
-                    width=150, height=30, fg_color=BG3, hover_color=AMBER,
+                    width=150, height=30, fg_color=BG3, hover_color='#d5d5da',
                     text_color=DIM, command=lambda v=val: self._set_vehicle_dir(v),
                 )
                 b.pack(side='left', padx=3)
@@ -1054,7 +1056,7 @@ class App(ctk.CTk):
         run_row.pack(fill='x', padx=20, pady=12)
         self._run_btn = ctk.CTkButton(
             run_row, text='Process Video', font=('Helvetica', 13, 'bold'),
-            fg_color=SUCCESS, hover_color='#16a34a', text_color='white',
+            fg_color=SUCCESS, hover_color='#28a745', text_color='white',
             height=42, corner_radius=10, command=self._run,
         )
         self._run_btn.pack(side='left')
@@ -1070,7 +1072,7 @@ class App(ctk.CTk):
         log_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         log_wrap.pack(fill='both', expand=True, padx=20, pady=(0, 16))
         self._log_text = ctk.CTkTextbox(log_wrap, font=('Menlo', 10),
-                                         fg_color=BG2, text_color=DIM,
+                                         fg_color=BG_DARK, text_color='#a8b2c8',
                                          corner_radius=10)
         self._log_text.pack(fill='both', expand=True)
         self._log_text.configure(state='disabled')
@@ -1152,7 +1154,7 @@ class App(ctk.CTk):
                             (max(lx + 4, 4), max(y1 + 16, 20)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
 
-        padded = Image.new('RGB', (PREVIEW_W, PREVIEW_H), (13, 18, 30))
+        padded = Image.new('RGB', (PREVIEW_W, PREVIEW_H), (28, 28, 30))
         ox = (PREVIEW_W - nw) // 2
         oy = (PREVIEW_H - nh) // 2
         padded.paste(Image.fromarray(frame), (ox, oy))
