@@ -3,3 +3,4 @@ ultralytics
 Pillow
 requests
 customtkinter
+tkinterdnd2

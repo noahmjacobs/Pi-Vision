@@ -145,7 +145,7 @@ YOLO_SKIP  = 2
 
 # ── Version ───────────────────────────────────────────────────────────────────────────────────
 # Bump before every release. Must match the GitHub Release tag (minus the 'v').
-APP_VERSION  = '1.0.21'
+APP_VERSION  = '1.0.22'
 GITHUB_REPO  = 'noahmjacobs/pi-vision'
 
 
@@ -512,7 +512,8 @@ class App(ctk.CTk):
         self._pw = PREVIEW_W
         self._ph = PREVIEW_H
         self._date_var: ctk.StringVar | None = None
-        self._time_var: ctk.StringVar | None = None
+        self._hour_var: ctk.StringVar | None = None
+        self._min_var:  ctk.StringVar | None = None
 
         saved = load_session()
         if saved and saved.get('refreshToken'):
@@ -731,7 +732,7 @@ class App(ctk.CTk):
 
     def _show_signin(self) -> None:
         self._clear()
-        self.geometry('420x490')
+        self.geometry('440x530')
         self.resizable(False, False)
 
         # ── Top title area ─────────────────────────────────────────────────
@@ -894,6 +895,8 @@ class App(ctk.CTk):
         ctk.CTkLabel(hdr, text=f'{s["companyName"]}  ·  {s["email"]}',
                      font=('Helvetica', 10), text_color=DIM).pack(side='right', padx=(0, 6))
 
+        self.minsize(720, 680)
+
         loc_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         loc_row.pack(fill='x', padx=20, pady=(12, 8))
         ctk.CTkLabel(loc_row, text='Location:', font=('Helvetica', 12),
@@ -903,9 +906,38 @@ class App(ctk.CTk):
             loc_row, textvariable=self._loc_var, font=('Helvetica', 13),
             fg_color=BG2, text_color=TEXT, border_color=BG3,
             placeholder_text='e.g. North Entrance, Parking Lot A...',
-            width=320, height=36,
+            width=260, height=36,
         )
         self._loc_entry.pack(side='left', padx=(10, 0))
+
+        # ── Video start date/time — optional, right of location ──────────────
+        ctk.CTkLabel(loc_row, text='Date:', font=('Helvetica', 11),
+                     text_color=DIM).pack(side='left', padx=(18, 0))
+        self._date_var = ctk.StringVar()
+        ctk.CTkEntry(
+            loc_row, textvariable=self._date_var, font=('Helvetica', 11),
+            fg_color=BG2, text_color=TEXT, border_color=BG3,
+            placeholder_text='YYYY-MM-DD', width=116, height=32,
+        ).pack(side='left', padx=(6, 0))
+
+        _hours   = [f'{h:02d}' for h in range(24)]
+        _minutes = [f'{m:02d}' for m in range(0, 60, 5)]
+        self._hour_var = ctk.StringVar(value='00')
+        self._min_var  = ctk.StringVar(value='00')
+        ctk.CTkOptionMenu(
+            loc_row, variable=self._hour_var, values=_hours,
+            fg_color=BG2, button_color=BG3, button_hover_color='#d5d5da',
+            text_color=TEXT, dropdown_fg_color=BG2, dropdown_text_color=TEXT,
+            width=64, height=32, font=('Helvetica', 11),
+        ).pack(side='left', padx=(6, 0))
+        ctk.CTkOptionMenu(
+            loc_row, variable=self._min_var, values=_minutes,
+            fg_color=BG2, button_color=BG3, button_hover_color='#d5d5da',
+            text_color=TEXT, dropdown_fg_color=BG2, dropdown_text_color=TEXT,
+            width=64, height=32, font=('Helvetica', 11),
+        ).pack(side='left', padx=(4, 0))
+        ctk.CTkLabel(loc_row, text='(optional)', font=('Helvetica', 10),
+                     text_color=DIM).pack(side='left', padx=(6, 0))
 
         self._sugg_frame = ctk.CTkFrame(self, fg_color=BG2, corner_radius=6,
                                          border_width=1, border_color=BG3)
@@ -916,7 +948,7 @@ class App(ctk.CTk):
         ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x')
 
         vpick = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        vpick.pack(fill='x', padx=20, pady=14)
+        vpick.pack(fill='x', padx=20, pady=(10, 6))
         ctk.CTkButton(vpick, text='Browse for Video', font=('Helvetica', 12),
                       fg_color=ACCENT, hover_color='#0051a8', text_color='white',
                       height=36, command=self._pick_video).pack(side='left')
@@ -924,36 +956,27 @@ class App(ctk.CTk):
                                           font=('Helvetica', 11), text_color=DIM)
         self._video_label.pack(side='left', padx=14)
 
-        # Video start date/time — pre-filled from file mtime, editable by user
-        dt_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        dt_row.pack(fill='x', padx=20, pady=(0, 10))
-        ctk.CTkLabel(dt_row, text='Video start:', font=('Helvetica', 12),
-                     text_color=DIM).pack(side='left')
-        self._date_var = ctk.StringVar()
-        ctk.CTkEntry(
-            dt_row, textvariable=self._date_var, font=('Helvetica', 12),
-            fg_color=BG2, text_color=TEXT, border_color=BG3,
-            placeholder_text='YYYY-MM-DD', width=130, height=32,
-        ).pack(side='left', padx=(10, 6))
-        self._time_var = ctk.StringVar()
-        ctk.CTkEntry(
-            dt_row, textvariable=self._time_var, font=('Helvetica', 12),
-            fg_color=BG2, text_color=TEXT, border_color=BG3,
-            placeholder_text='HH:MM', width=80, height=32,
-        ).pack(side='left')
-        ctk.CTkLabel(dt_row, text='(edit to correct if the file date is wrong)',
-                     font=('Helvetica', 10), text_color=DIM).pack(side='left', padx=(10, 0))
-
         canvas_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         canvas_wrap.pack(fill='x', padx=20)
         self._canvas = tk.Canvas(
             canvas_wrap, width=PREVIEW_W, height=PREVIEW_H,
-            bg=BG_DARK, highlightthickness=1, highlightbackground=BG3,
+            bg=BG3, highlightthickness=1, highlightbackground=BG3,
             cursor='crosshair' if not is_seatbelt else 'arrow',
         )
         self._canvas.pack()
         if not is_seatbelt:
             self._canvas.bind('<Button-1>', self._on_canvas_click)
+
+        # Drag-and-drop onto the canvas
+        try:
+            from tkinterdnd2 import TkinterDnD, DND_FILES
+            TkinterDnD._require(self)
+            self._canvas.drop_target_register(DND_FILES)
+            self._canvas.dnd_bind('<<Drop>>', self._on_video_drop)
+            self._has_dnd = True
+        except Exception:
+            self._has_dnd = False
+
         self._draw_placeholder()
 
         if not is_seatbelt:
@@ -990,40 +1013,33 @@ class App(ctk.CTk):
             self._slider.set(50)
             self._slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
 
-            # Lane boundary sliders — restrict the line to one lane, ignoring the other
-            lane_start_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-            lane_start_row.pack(fill='x', padx=20, pady=(0, 2))
-            self._lane_start_name = ctk.CTkLabel(lane_start_row, text='Lane left:', font=('Helvetica', 12),
-                         text_color=DIM, width=90, anchor='w')
-            self._lane_start_name.pack(side='left')
-            self._lane_start_label = ctk.CTkLabel(lane_start_row, text='0%',
-                                                   font=('Helvetica', 12, 'bold'),
-                                                   text_color=TEXT, width=40)
-            self._lane_start_label.pack(side='right')
+            # Lane boundary — single row: L [start slider] [end slider] R
+            lane_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+            lane_row.pack(fill='x', padx=20, pady=(0, 6))
+            ctk.CTkLabel(lane_row, text='Lane:', font=('Helvetica', 12),
+                         text_color=DIM).pack(side='left')
+            self._lane_start_name = ctk.CTkLabel(lane_row, text='L',
+                         font=('Helvetica', 11, 'bold'), text_color=DIM, width=16)
+            self._lane_start_name.pack(side='left', padx=(8, 0))
             self._lane_start_slider = ctk.CTkSlider(
-                lane_start_row, from_=0, to=90, number_of_steps=90,
+                lane_row, from_=0, to=90, number_of_steps=90,
                 fg_color=BG3, progress_color=GREEN, button_color=GREEN,
                 button_hover_color='#059669', command=self._on_lane_start_slider,
             )
             self._lane_start_slider.set(0)
-            self._lane_start_slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
-
-            lane_end_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-            lane_end_row.pack(fill='x', padx=20, pady=(0, 6))
-            self._lane_end_name = ctk.CTkLabel(lane_end_row, text='Lane right:', font=('Helvetica', 12),
-                         text_color=DIM, width=90, anchor='w')
-            self._lane_end_name.pack(side='left')
-            self._lane_end_label = ctk.CTkLabel(lane_end_row, text='100%',
-                                                 font=('Helvetica', 12, 'bold'),
-                                                 text_color=TEXT, width=40)
-            self._lane_end_label.pack(side='right')
+            self._lane_start_slider.pack(side='left', fill='x', expand=True, padx=(4, 4))
             self._lane_end_slider = ctk.CTkSlider(
-                lane_end_row, from_=10, to=100, number_of_steps=90,
+                lane_row, from_=10, to=100, number_of_steps=90,
                 fg_color=BG3, progress_color=GREEN, button_color=GREEN,
                 button_hover_color='#059669', command=self._on_lane_end_slider,
             )
             self._lane_end_slider.set(100)
-            self._lane_end_slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
+            self._lane_end_slider.pack(side='left', fill='x', expand=True, padx=(4, 4))
+            self._lane_end_name = ctk.CTkLabel(lane_row, text='R',
+                         font=('Helvetica', 11, 'bold'), text_color=DIM, width=16)
+            self._lane_end_name.pack(side='left')
+            self._lane_start_label = None
+            self._lane_end_label   = None
         else:
             dir_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
             dir_row.pack(fill='x', padx=20, pady=(10, 4))
@@ -1083,15 +1099,45 @@ class App(ctk.CTk):
     def _draw_placeholder(self) -> None:
         self._canvas.delete('all')
         is_seatbelt = self.session and self.session.get('mode') == 'seatbelt'
-        text = (
-            'Select a video to begin' if is_seatbelt else
-            'Select a video — then click anywhere on the preview to set the counting line'
-        )
+        has_dnd = getattr(self, '_has_dnd', False)
+        if is_seatbelt:
+            line1 = 'Drop a video here or click Browse'
+            line2 = ''
+        else:
+            line1 = 'Drop a video here or click Browse'
+            line2 = 'Then click anywhere to set the counting line'
         self._canvas.create_text(
-            PREVIEW_W // 2, PREVIEW_H // 2,
-            text=text, fill='#475569',
-            font=('Helvetica', 12), width=420, justify='center',
+            PREVIEW_W // 2, PREVIEW_H // 2 - (12 if line2 else 0),
+            text=line1, fill='#8e8e93',
+            font=('Helvetica', 13), justify='center',
         )
+        if line2:
+            self._canvas.create_text(
+                PREVIEW_W // 2, PREVIEW_H // 2 + 16,
+                text=line2, fill='#aeaeb2',
+                font=('Helvetica', 11), justify='center',
+            )
+
+    def _on_video_drop(self, event) -> None:
+        """Handle drag-and-drop of a video file onto the canvas."""
+        raw = event.data.strip()
+        # macOS wraps paths with spaces in braces: {/path/to/my file.mp4}
+        if raw.startswith('{') and raw.endswith('}'):
+            raw = raw[1:-1]
+        path = raw
+        if not path.lower().endswith(('.mp4', '.mov', '.mkv', '.avi', '.m4v')):
+            return
+        self.video_path = path
+        self._video_label.configure(text=Path(path).name, text_color=TEXT)
+        try:
+            mtime = os.path.getmtime(path)
+            dt    = datetime.fromtimestamp(mtime)
+            if self._date_var: self._date_var.set(dt.strftime('%Y-%m-%d'))
+            if self._hour_var: self._hour_var.set(f'{dt.hour:02d}')
+            if self._min_var:  self._min_var.set(f'{(dt.minute // 5) * 5:02d}')
+        except Exception:
+            pass
+        self._load_preview()
 
     def _pick_video(self) -> None:
         path = filedialog.askopenfilename(
@@ -1108,8 +1154,10 @@ class App(ctk.CTk):
             dt    = datetime.fromtimestamp(mtime)
             if self._date_var is not None:
                 self._date_var.set(dt.strftime('%Y-%m-%d'))
-            if self._time_var is not None:
-                self._time_var.set(dt.strftime('%H:%M'))
+            if self._hour_var is not None:
+                self._hour_var.set(f'{dt.hour:02d}')
+            if self._min_var is not None:
+                self._min_var.set(f'{(dt.minute // 5) * 5:02d}')
         except Exception:
             pass
         self._load_preview()
@@ -1154,7 +1202,7 @@ class App(ctk.CTk):
                             (max(lx + 4, 4), max(y1 + 16, 20)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
 
-        padded = Image.new('RGB', (PREVIEW_W, PREVIEW_H), (28, 28, 30))
+        padded = Image.new('RGB', (PREVIEW_W, PREVIEW_H), (229, 229, 234))
         ox = (PREVIEW_W - nw) // 2
         oy = (PREVIEW_H - nh) // 2
         padded.paste(Image.fromarray(frame), (ox, oy))
@@ -1245,11 +1293,11 @@ class App(ctk.CTk):
         self._redraw_preview()
         if self._lane_start_name and self._lane_end_name:
             if val in ('left', 'right'):
-                self._lane_start_name.configure(text='Lane top:')
-                self._lane_end_name.configure(text='Lane bottom:')
+                self._lane_start_name.configure(text='T')
+                self._lane_end_name.configure(text='B')
             else:
-                self._lane_start_name.configure(text='Lane left:')
-                self._lane_end_name.configure(text='Lane right:')
+                self._lane_start_name.configure(text='L')
+                self._lane_end_name.configure(text='R')
 
     def _update_dir_buttons(self) -> None:
         for val, btn in self._dir_btns.items():
@@ -1332,15 +1380,16 @@ class App(ctk.CTk):
         is_seatbelt = mode == 'seatbelt'
         unit        = 'vehicles' if mode in ('seatbelt', 'car_counter') else 'crossings'
 
-        # Parse manually entered video start date/time
+        # Parse video start date/time from dropdowns
         video_start_ts: float | None = None
         if self._date_var is not None:
             date_str = self._date_var.get().strip()
-            time_str = (self._time_var.get().strip() if self._time_var else '') or '00:00'
+            hour_str = self._hour_var.get() if self._hour_var else '00'
+            min_str  = self._min_var.get()  if self._min_var  else '00'
             if date_str:
                 try:
                     video_start_ts = datetime.strptime(
-                        f'{date_str} {time_str}', '%Y-%m-%d %H:%M'
+                        f'{date_str} {hour_str}:{min_str}', '%Y-%m-%d %H:%M'
                     ).timestamp()
                 except ValueError:
                     pass  # bad format → fall back to file mtime inside run_processing

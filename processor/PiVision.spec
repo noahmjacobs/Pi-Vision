@@ -7,6 +7,10 @@ block_cipher = None
 datas = []
 datas += collect_data_files('customtkinter')
 datas += collect_data_files('ultralytics')
+try:
+    datas += collect_data_files('tkinterdnd2')
+except Exception:
+    pass
 datas += [('icon.icns', '.'), ('icon.ico', '.'), ('logo.png', '.')]
 
 # Bundle YOLO model weights so users never need to download them on first run
@@ -41,6 +45,7 @@ hidden += collect_submodules('ultralytics')   # ensures ByteTrack tracker module
 hidden += ['PIL._tkinter_finder', 'pkg_resources.py2_warn']
 # lap is used by ByteTrack for linear assignment (ultralytics.trackers.utils.matching)
 hidden += ['lap']
+hidden += ['tkinterdnd2']
 # scipy is imported unconditionally at the top of ultralytics/trackers/utils/matching.py
 # so it MUST be included even though lap handles the actual work
 hidden += ['scipy', 'scipy.spatial', 'scipy.spatial.distance', 'scipy.optimize']
