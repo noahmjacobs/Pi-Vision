@@ -50,8 +50,8 @@
   --glass-shadow:      0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 4px rgba(0, 0, 0, 0.3);
   --glass-shadow-lg:   0 8px 40px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
   --text-primary:      #eef2ff;
-  --text-secondary:    #7c8db0;
-  --text-tertiary:     #4a5570;
+  --text-secondary:    #a0b0d0;
+  --text-tertiary:     #7086b0;
   --accent-blue-light: rgba(59, 130, 246, 0.15);
 }
 
