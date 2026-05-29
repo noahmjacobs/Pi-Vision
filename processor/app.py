@@ -58,20 +58,25 @@ import customtkinter as ctk
 from ultralytics import YOLO
 
 # ── Appearance ──────────────────────────────────────────────────────────────────────────────
-ctk.set_appearance_mode('light')
 ctk.set_default_color_theme('blue')
 
-BG      = '#f5f5f7'   # Apple window background (light gray)
-BG2     = '#ffffff'   # cards, panels, header
-BG3     = '#e5e5ea'   # borders, separators, inactive buttons
-BG_DARK = '#1c1c1e'   # video canvas + log (stays dark — Apple system dark)
-ACCENT  = '#0071e3'   # Apple blue — people counter
-AMBER   = '#ff9500'   # Apple orange — seatbelt mode
-GREEN   = '#34c759'   # Apple green — car counter
-TEXT    = '#1d1d1f'   # Apple near-black
-DIM     = '#6e6e73'   # Apple secondary text
-SUCCESS = '#34c759'   # Apple green — process button
-DANGER  = '#ff3b30'   # Apple red
+# Mutable globals — updated by _apply_theme() when user toggles dark/light
+BG      = '#f5f5f7'
+BG2     = '#ffffff'
+BG3     = '#e5e5ea'
+HOVER   = '#d5d5da'   # button hover (light)
+TEXT    = '#1d1d1f'
+DIM     = '#6e6e73'
+
+BG_DARK = '#1c1c1e'   # video canvas + log — always dark regardless of theme
+ACCENT  = '#0071e3'
+AMBER   = '#ff9500'
+GREEN   = '#34c759'
+SUCCESS = '#34c759'
+DANGER  = '#ff3b30'
+
+_LIGHT = dict(BG='#f5f5f7', BG2='#ffffff', BG3='#e5e5ea', HOVER='#d5d5da', TEXT='#1d1d1f', DIM='#6e6e73')
+_DARK  = dict(BG='#0f172a', BG2='#1e293b', BG3='#334155', HOVER='#475569', TEXT='#f1f5f9', DIM='#94a3b8')
 
 PREVIEW_W = 640
 PREVIEW_H = 360
@@ -145,7 +150,7 @@ YOLO_SKIP  = 2
 
 # ── Version ───────────────────────────────────────────────────────────────────────────────────
 # Bump before every release. Must match the GitHub Release tag (minus the 'v').
-APP_VERSION  = '1.0.23'
+APP_VERSION  = '1.0.24'
 GITHUB_REPO  = 'noahmjacobs/pi-vision'
 
 
@@ -326,6 +331,7 @@ def run_processing(
     mode: str = 'people_counter',
     line_x_start: float = 0.0, line_x_end: float = 1.0,
     video_start_ts: float | None = None,
+    frame_cb=None,
 ):
     """
     Core counting pipeline shared by people_counter and car_counter.
@@ -379,6 +385,13 @@ def run_processing(
                 break
             frame_num += 1
             progress_cb(frame_num / total, count)
+
+            # Send a live preview frame to the UI every 90 frames
+            if frame_cb and frame_num % 90 == 0:
+                try:
+                    frame_cb(frame.copy())
+                except Exception:
+                    pass
 
             if frame_num % YOLO_SKIP != 0:
                 continue
@@ -495,7 +508,15 @@ class App(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         self.title('PiVision Processor')
-        self.configure(fg_color=BG)
+
+        # Load and apply saved theme before building any UI
+        self._current_theme = 'light'
+        try:
+            _prefs = json.loads((Path.home() / '.pivision_prefs.json').read_text())
+            self._current_theme = _prefs.get('theme', 'light')
+        except Exception:
+            pass
+        self._apply_theme(self._current_theme)
 
         self.session: dict | None = None
         self.video_path: str | None = None
@@ -507,7 +528,8 @@ class App(ctk.CTk):
         self.direction = 'down'
         self._vehicle_dir = 'towards'
         self._processing = False
-        self._log_queue: queue.Queue = queue.Queue()
+        self._log_queue:   queue.Queue = queue.Queue()
+        self._frame_queue: queue.Queue = queue.Queue(maxsize=2)
         self._px = self._py = 0
         self._pw = PREVIEW_W
         self._ph = PREVIEW_H
@@ -569,7 +591,7 @@ class App(ctk.CTk):
             ),
             width=150,
         ).pack(side='left', padx=6)
-        ctk.CTkButton(btn_row, text='Not Now', fg_color=BG3, hover_color='#d5d5da',
+        ctk.CTkButton(btn_row, text='Not Now', fg_color=BG3, hover_color=HOVER,
                       text_color=DIM, command=dialog.destroy, width=100).pack(side='left', padx=6)
 
     def _start_auto_update(self, dialog, status_label, progress_bar, btn_row) -> None:
@@ -701,6 +723,35 @@ class App(ctk.CTk):
                 self.after(0, self._show_signin)
 
         threading.Thread(target=attempt, daemon=True).start()
+
+
+    # ── Theme ─────────────────────────────────────────────────────────────────────────────────────────
+
+    def _apply_theme(self, mode: str) -> None:
+        global BG, BG2, BG3, HOVER, TEXT, DIM
+        self._current_theme = mode
+        colors = _DARK if mode == 'dark' else _LIGHT
+        BG = colors['BG']; BG2 = colors['BG2']; BG3 = colors['BG3']
+        HOVER = colors['HOVER']; TEXT = colors['TEXT']; DIM = colors['DIM']
+        ctk.set_appearance_mode(mode)
+        self.configure(fg_color=BG)
+
+    def _toggle_theme(self) -> None:
+        new_mode = 'dark' if self._current_theme == 'light' else 'light'
+        self._apply_theme(new_mode)
+        # Persist preference
+        try:
+            _pf = Path.home() / '.pivision_prefs.json'
+            prefs = json.loads(_pf.read_text()) if _pf.exists() else {}
+            prefs['theme'] = new_mode
+            _pf.write_text(json.dumps(prefs))
+        except Exception:
+            pass
+        # Rebuild current screen with new colors
+        if self.session:
+            self._show_main()
+        else:
+            self._show_signin()
 
 
     # ── Screen helpers ────────────────────────────────────────────────────────────────────────────
@@ -890,8 +941,12 @@ class App(ctk.CTk):
                      text_color='white', fg_color=mode_color, corner_radius=6,
                      padx=9, pady=3).pack(side='left', pady=18)
         ctk.CTkButton(hdr, text='Sign Out', font=('Helvetica', 10),
-                      fg_color=BG3, hover_color='#d5d5da', text_color=DIM, width=80, height=28,
+                      fg_color=BG3, hover_color=HOVER, text_color=DIM, width=80, height=28,
                       corner_radius=8, command=self._sign_out).pack(side='right', padx=14)
+        _theme_icon = '☀' if self._current_theme == 'dark' else '☾'
+        ctk.CTkButton(hdr, text=_theme_icon, font=('Helvetica', 14),
+                      fg_color=BG3, hover_color=HOVER, text_color=DIM, width=34, height=28,
+                      corner_radius=8, command=self._toggle_theme).pack(side='right', padx=(0, 4))
         ctk.CTkLabel(hdr, text=f'{s["companyName"]}  ·  {s["email"]}',
                      font=('Helvetica', 10), text_color=DIM).pack(side='right', padx=(0, 6))
 
@@ -927,12 +982,13 @@ class App(ctk.CTk):
             placeholder_text='YYYY-MM-DD', width=112, height=32,
         ).pack(side='left', padx=(6, 0))
         # 📅 calendar picker button
-        ctk.CTkButton(
+        _cal_btn = ctk.CTkButton(
             loc_row, text='📅', width=32, height=32,
             fg_color=BG2, hover_color=BG3, text_color=TEXT,
             border_color=BG3, border_width=1, font=('Helvetica', 13),
-            command=self._show_calendar,
-        ).pack(side='left', padx=(2, 0))
+        )
+        _cal_btn.configure(command=lambda b=_cal_btn: self._show_calendar(b))
+        _cal_btn.pack(side='left', padx=(2, 0))
 
         _hours   = [f'{h:02d}' for h in range(24)]
         _minutes = [f'{m:02d}' for m in range(0, 60, 5)]
@@ -940,13 +996,13 @@ class App(ctk.CTk):
         self._min_var  = ctk.StringVar(value='00')
         ctk.CTkOptionMenu(
             loc_row, variable=self._hour_var, values=_hours,
-            fg_color=BG2, button_color=BG3, button_hover_color='#d5d5da',
+            fg_color=BG2, button_color=BG3, button_hover_color=HOVER,
             text_color=TEXT, dropdown_fg_color=BG2, dropdown_text_color=TEXT,
             width=64, height=32, font=('Helvetica', 11),
         ).pack(side='left', padx=(6, 0))
         ctk.CTkOptionMenu(
             loc_row, variable=self._min_var, values=_minutes,
-            fg_color=BG2, button_color=BG3, button_hover_color='#d5d5da',
+            fg_color=BG2, button_color=BG3, button_hover_color=HOVER,
             text_color=TEXT, dropdown_fg_color=BG2, dropdown_text_color=TEXT,
             width=64, height=32, font=('Helvetica', 11),
         ).pack(side='left', padx=(4, 0))
@@ -1004,7 +1060,7 @@ class App(ctk.CTk):
                                ('← Left', 'left'), ('→ Right', 'right')]:
                 b = ctk.CTkButton(
                     ctrl, text=label, font=('Helvetica', 11),
-                    width=80, height=30, fg_color=BG3, hover_color='#d5d5da',
+                    width=80, height=30, fg_color=BG3, hover_color=HOVER,
                     text_color=DIM, command=lambda v=val: self._set_direction(v),
                 )
                 b.pack(side='left', padx=3)
@@ -1063,7 +1119,7 @@ class App(ctk.CTk):
             for label, val in [('↓ Towards Camera', 'towards'), ('↔ Both', 'both')]:
                 b = ctk.CTkButton(
                     dir_row, text=label, font=('Helvetica', 11),
-                    width=150, height=30, fg_color=BG3, hover_color='#d5d5da',
+                    width=150, height=30, fg_color=BG3, hover_color=HOVER,
                     text_color=DIM, command=lambda v=val: self._set_vehicle_dir(v),
                 )
                 b.pack(side='left', padx=3)
@@ -1286,28 +1342,42 @@ class App(ctk.CTk):
                 command=lambda l=loc: self._pick_location(l),
             ).pack(fill='x', padx=4, pady=1)
 
-    def _show_calendar(self) -> None:
-        """📅 button — open a date-picker popup."""
+    def _show_calendar(self, anchor_widget=None) -> None:
+        """Chromeless dropdown calendar — appears directly below the button."""
         try:
             from tkcalendar import Calendar as _Cal
+            import tkinter as _tk
+            import tkinter.ttk as _ttk
         except ImportError:
             return
 
-        popup = ctk.CTkToplevel(self)
-        popup.title('Pick a Date')
-        popup.geometry('290x270')
-        popup.resizable(False, False)
-        popup.configure(fg_color=BG2)
-        popup.grab_set()
-        popup.lift()
+        # Chromeless window — no title bar, looks like a dropdown
+        popup = _tk.Toplevel(self)
+        popup.overrideredirect(True)
+        popup.configure(bg=BG2)
 
-        # Try to pre-select whatever date is already in the field
-        import tkinter.font as tkfont
-        init_date = None
+        # Force clam theme so our colors work on macOS (native 'aqua' ignores them)
+        _style = _ttk.Style(popup)
+        try:
+            _style.theme_use('clam')
+        except Exception:
+            pass
+
+        # Position flush below the anchor widget
+        if anchor_widget:
+            self.update_idletasks()
+            x = anchor_widget.winfo_rootx()
+            y = anchor_widget.winfo_rooty() + anchor_widget.winfo_height() + 2
+        else:
+            x = self.winfo_rootx() + 220
+            y = self.winfo_rooty() + 120
+        popup.geometry(f'256x228+{x}+{y}')
+
+        init_date = datetime.now()
         try:
             init_date = datetime.strptime(self._date_var.get().strip(), '%Y-%m-%d')
         except Exception:
-            init_date = datetime.now()
+            pass
 
         cal = _Cal(
             popup, selectmode='day',
@@ -1319,12 +1389,13 @@ class App(ctk.CTk):
             weekendbackground=BG2, weekendforeground=TEXT,
             selectbackground=ACCENT, selectforeground='white',
             othermonthbackground=BG3, othermonthforeground=DIM,
-            bordercolor=BG3,
+            bordercolor=BG3, font=('Helvetica', 10),
+            showweeknumbers=False,
         )
-        cal.pack(padx=14, pady=(14, 6))
+        cal.pack(fill='both', expand=True, padx=1, pady=1)
 
-        btn_row = ctk.CTkFrame(popup, fg_color='transparent')
-        btn_row.pack(pady=(0, 14))
+        btn_row = _tk.Frame(popup, bg=BG2)
+        btn_row.pack(fill='x', padx=8, pady=(0, 8))
 
         def _pick():
             self._date_var.set(cal.get_date())
@@ -1334,12 +1405,19 @@ class App(ctk.CTk):
             self._date_var.set(datetime.now().strftime('%Y-%m-%d'))
             popup.destroy()
 
-        ctk.CTkButton(btn_row, text='Today', width=90, height=32,
-                      fg_color=BG3, hover_color='#d5d5da', text_color=TEXT,
-                      font=('Helvetica', 12), command=_today).pack(side='left', padx=5)
-        ctk.CTkButton(btn_row, text='Select', width=90, height=32,
-                      fg_color=ACCENT, hover_color='#0051a8', text_color='white',
-                      font=('Helvetica', 12), command=_pick).pack(side='left', padx=5)
+        _b = dict(relief='flat', bd=0, font=('Helvetica', 11), cursor='hand2')
+        _tk.Button(btn_row, text='Today', bg=BG3, fg=TEXT,
+                   activebackground=HOVER, activeforeground=TEXT,
+                   command=_today, **_b).pack(side='left', padx=(0, 4), ipady=3, ipadx=10)
+        _tk.Button(btn_row, text='Select', bg=ACCENT, fg='white',
+                   activebackground='#0051a8', activeforeground='white',
+                   command=_pick, **_b).pack(side='left', ipady=3, ipadx=10)
+
+        # Dismiss when clicking outside
+        def _dismiss(e):
+            popup.after(150, lambda: popup.destroy() if popup.winfo_exists() else None)
+        popup.bind('<FocusOut>', _dismiss)
+        popup.focus_set()
 
 
     # ── Counting line controls ────────────────────────────────────────────────────────────────────────
@@ -1530,6 +1608,7 @@ class App(ctk.CTk):
                     'line_x_start':   self.line_x_start,
                     'line_x_end':     self.line_x_end,
                     'video_start_ts': video_start_ts,
+                    'frame_cb':       lambda f: self._frame_queue.put(f) if not self._frame_queue.full() else None,
                 },
                 daemon=True,
             ).start()
@@ -1538,6 +1617,16 @@ class App(ctk.CTk):
     # ── Log polling ───────────────────────────────────────────────────────────────────────────────────
 
     def _poll_logs(self) -> None:
+        # Live video frame preview
+        try:
+            bgr = self._frame_queue.get_nowait()
+            if hasattr(self, '_canvas'):
+                self._preview_frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                self._redraw_preview()
+        except queue.Empty:
+            pass
+
+        # Log messages
         while True:
             try:
                 msg = self._log_queue.get_nowait()
