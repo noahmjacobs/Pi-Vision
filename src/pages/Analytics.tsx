@@ -567,33 +567,42 @@ function CounterAnalytics({ cfg }: { cfg: CounterConfig }) {
       </div>
 
       {/* ── Location breakdown (only if > 1 location) ──────────────────────── */}
-      {devices.length > 1 && (
-        <div className="glass-card" style={{ padding: '24px 28px' }}>
+      {devices.length > 1 && pieTotalCount > 0 && (
+        <div className="glass-card" style={{ padding: '20px 24px' }}>
           <div className="chart-title">By Location</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 28, flexWrap: 'wrap' }}>
+            {/* Only pass slices with actual data — zero-value slices break the donut geometry */}
             <DonutChart
-              slices={perLocation.map(c => ({ label: c.device.name ?? c.device.id, value: c.count, color: c.color }))}
+              slices={perLocation.filter(c => c.count > 0).map(c => ({ label: c.device.name ?? c.device.id, value: c.count, color: c.color }))}
               total={pieTotalCount}
             />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {perLocation.map(c => (
+            {/* Two-column legend — only show locations with crossings */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(160px, 1fr))',
+              gap: '2px 12px',
+              alignContent: 'start',
+              flex: 1,
+            }}>
+              {perLocation.filter(c => c.count > 0).map(c => (
                 <button
                   key={c.device.id}
                   onClick={() => setSelectedLocation(c.device.id === selectedLocation ? '' : c.device.id)}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
+                    display: 'flex', alignItems: 'center', gap: 8,
                     background: selectedLocation === c.device.id ? 'rgba(0,0,0,0.04)' : 'none',
                     border: selectedLocation === c.device.id ? '1px solid rgba(0,0,0,0.08)' : '1px solid transparent',
-                    borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontFamily: 'var(--font)', textAlign: 'left',
-                    transition: 'background 0.15s',
+                    borderRadius: 7, padding: '6px 10px', cursor: 'pointer',
+                    fontFamily: 'var(--font)', textAlign: 'left', transition: 'background 0.15s',
                   }}
                 >
-                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{c.device.name ?? c.device.id}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                      {c.count.toLocaleString()} crossing{c.count !== 1 ? 's' : ''}
-                      {pieTotalCount > 0 ? ` · ${Math.round(c.count / pieTotalCount * 100)}%` : ''}
+                  <div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {c.device.name ?? c.device.id}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                      {c.count.toLocaleString()} · {Math.round(c.count / pieTotalCount * 100)}%
                     </div>
                   </div>
                 </button>
