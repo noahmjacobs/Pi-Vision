@@ -15,20 +15,21 @@ try:
     datas += collect_data_files('tkcalendar')
 except Exception:
     pass
-datas += [('icon.icns', '.'), ('icon.ico', '.'), ('logo.png', '.')]
+datas += [('icon.icns', '.'), ('icon.ico', '.'), ('logo.png', '.'), ('logo_holo.png', '.')]
 
 # Bundle YOLO model weights so users never need to download them on first run
 import urllib.request, os
 _model_cache = os.path.join(os.path.expanduser('~'), '.cache', 'ultralytics', 'assets')
-_model_path  = os.path.join(_model_cache, 'yolov8m.pt')
-if not os.path.exists(_model_path):
-    os.makedirs(_model_cache, exist_ok=True)
-    print('Downloading yolov8m.pt for bundling...')
-    urllib.request.urlretrieve(
-        'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8m.pt',
-        _model_path,
-    )
-datas += [(_model_path, '.')]
+for _model_name in ['yolov8n.pt', 'yolov8s.pt', 'yolov8m.pt', 'yolov8l.pt']:
+    _model_path = os.path.join(_model_cache, _model_name)
+    if not os.path.exists(_model_path):
+        os.makedirs(_model_cache, exist_ok=True)
+        print(f'Downloading {_model_name} for bundling...')
+        urllib.request.urlretrieve(
+            f'https://github.com/ultralytics/assets/releases/download/v8.3.0/{_model_name}',
+            _model_path,
+        )
+    datas += [(_model_path, '.')]
 
 # Bundle ByteTrack config so the tracker works in the frozen app
 _tracker_path = os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'bytetrack.yaml')

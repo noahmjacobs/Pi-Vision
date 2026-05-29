@@ -53,33 +53,74 @@ import cv2
 import requests
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageFilter, ImageTk
 import customtkinter as ctk
 from ultralytics import YOLO
 
 # ── Appearance ──────────────────────────────────────────────────────────────────────────────
 ctk.set_default_color_theme('blue')
+ctk.set_appearance_mode('dark')
 
-# Mutable globals — updated by _apply_theme() when user toggles dark/light
-BG      = '#f5f5f7'
-BG2     = '#ffffff'
-BG3     = '#e5e5ea'
-HOVER   = '#d5d5da'   # button hover (light)
-TEXT    = '#1d1d1f'
-DIM     = '#6e6e73'
+BG      = '#071226'
+BG2     = '#16244a'
+BG3     = '#38507b'
+HOVER   = '#4b67a0'
+TEXT    = '#f8fafc'
+DIM     = '#c3cce1'
+PANEL   = '#1c2c55'
+FIELD   = '#2b3d6b'
+BORDER  = '#586b98'
+CANVAS_BG = '#253a63'
 
-BG_DARK = '#1c1c1e'   # video canvas + log — always dark regardless of theme
-ACCENT  = '#0071e3'
-AMBER   = '#ff9500'
+BG_DARK = '#071226'   # video canvas + log — always dark regardless of theme
+ACCENT  = '#4f9cff'
+AMBER   = '#f59e0b'
 GREEN   = '#34c759'
 SUCCESS = '#34c759'
-DANGER  = '#ff3b30'
-
-_LIGHT = dict(BG='#f5f5f7', BG2='#ffffff', BG3='#e5e5ea', HOVER='#d5d5da', TEXT='#1d1d1f', DIM='#6e6e73')
-_DARK  = dict(BG='#0f172a', BG2='#1e293b', BG3='#334155', HOVER='#475569', TEXT='#f1f5f9', DIM='#94a3b8')
+DANGER  = '#ff5f57'
 
 PREVIEW_W = 640
 PREVIEW_H = 360
+
+
+def _hex_to_rgb(color: str) -> tuple[int, int, int]:
+    color = color.lstrip('#')
+    return tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _blend(c1: str, c2: str, amount: float) -> str:
+    a = _hex_to_rgb(c1)
+    b = _hex_to_rgb(c2)
+    mixed = tuple(int(a[i] * (1 - amount) + b[i] * amount) for i in range(3))
+    return '#%02x%02x%02x' % mixed
+
+
+def _make_dropzone_bg(width: int, height: int) -> Image.Image:
+    matte = _hex_to_rgb(_blend(BG2, '#ffffff', 0.035))
+    base = Image.new('RGB', (width, height), matte)
+    gradient = Image.new('RGB', (width, height), _hex_to_rgb(CANVAS_BG))
+    px = gradient.load()
+    left = _hex_to_rgb('#2b5f9c')
+    right = _hex_to_rgb('#6b4e8d')
+    bottom = _hex_to_rgb('#1c345d')
+    for y in range(height):
+        vt = y / max(height - 1, 1)
+        for x in range(width):
+            ht = x / max(width - 1, 1)
+            mid = tuple(int(left[i] * (1 - ht) + right[i] * ht) for i in range(3))
+            px[x, y] = tuple(int(mid[i] * (1 - vt * 0.45) + bottom[i] * (vt * 0.45)) for i in range(3))
+
+    glow = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(glow, 'RGBA')
+    draw.ellipse((width * 0.50, -height * 0.16, width * 1.18, height * 0.88), fill=(255, 132, 190, 70))
+    draw.ellipse((-width * 0.22, -height * 0.10, width * 0.44, height * 0.86), fill=(41, 166, 255, 78))
+    draw.ellipse((width * 0.30, height * 0.42, width * 0.86, height * 1.14), fill=(79, 156, 255, 34))
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=50))
+    rounded = Image.alpha_composite(gradient.convert('RGBA'), glow).convert('RGB')
+    mask = Image.new('L', (width, height), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, width - 1, height - 1), radius=18, fill=255)
+    base.paste(rounded, (0, 0), mask)
+    return base
 
 
 # ── Firebase config ─────────────────────────────────────────────────────────────────────────
@@ -103,18 +144,25 @@ SESSION_FILE = _session_path()
 
 
 # ── YOLO model path ───────────────────────────────────────────────────────────────────────────
-def _yolo_model_path() -> str:
+MODEL_OPTIONS = {
+    'Nano': 'yolov8n.pt',
+    'Small': 'yolov8s.pt',
+    'Medium': 'yolov8m.pt',
+    'Large': 'yolov8l.pt',
+}
+
+
+def _yolo_model_path(model_label: str = 'Small') -> str:
+    filename = MODEL_OPTIONS.get(model_label, MODEL_OPTIONS['Small'])
     if getattr(sys, 'frozen', False):
-        bundled = Path(sys._MEIPASS) / 'yolov8m.pt'
+        bundled = Path(sys._MEIPASS) / filename
         if bundled.exists():
             return str(bundled)
     # When running from source, find the model next to app.py regardless of CWD
-    local = Path(__file__).parent / 'yolov8m.pt'
+    local = Path(__file__).parent / filename
     if local.exists():
         return str(local)
-    return 'yolov8m.pt'
-
-YOLO_MODEL = _yolo_model_path()
+    return filename
 
 
 # ── Logo path ─────────────────────────────────────────────────────────────────────────────────
@@ -131,6 +179,20 @@ def _logo_path() -> str | None:
 LOGO_PATH = _logo_path()
 
 
+def _logo_holo_path() -> str | None:
+    if getattr(sys, 'frozen', False):
+        bundled = Path(sys._MEIPASS) / 'logo_holo.png'
+        if bundled.exists():
+            return str(bundled)
+    local = Path(__file__).parent / 'logo_holo.png'
+    if local.exists():
+        return str(local)
+    return None
+
+
+LOGO_HOLO_PATH = _logo_holo_path()
+
+
 def _tracker_config_path() -> str:
     """Find bytetrack.yaml — bundled copy next to app.py is the most reliable source."""
     if getattr(sys, 'frozen', False):
@@ -145,7 +207,8 @@ def _tracker_config_path() -> str:
 
 TRACKER_CONFIG = _tracker_config_path()
 YOLO_CONF  = 0.45
-YOLO_SKIP  = 2
+DEFAULT_MODEL = 'Small'
+DEFAULT_FRAME_SKIP = 2
 
 
 # ── Version ───────────────────────────────────────────────────────────────────────────────────
@@ -331,6 +394,8 @@ def run_processing(
     mode: str = 'people_counter',
     line_x_start: float = 0.0, line_x_end: float = 1.0,
     video_start_ts: float | None = None,
+    yolo_model_label: str = DEFAULT_MODEL,
+    yolo_skip: int = DEFAULT_FRAME_SKIP,
     frame_cb=None,
 ):
     """
@@ -343,6 +408,8 @@ def run_processing(
     direction             → 'down'|'up'|'left'|'right' — only crossings in this direction count
     line_x_start/end      → fraction (0-1) lane boundary — centroids outside this range are ignored
     video_start_ts        → Unix timestamp of the video recording start (from user input or file mtime)
+    yolo_model_label      → Nano|Small|Medium|Large model selector
+    yolo_skip             → run detection every Nth frame
     """
     try:
         cap    = cv2.VideoCapture(video_path)
@@ -353,14 +420,17 @@ def run_processing(
 
         log_cb(f'Video: {Path(video_path).name}')
         log_cb(f'  {width}x{height}  {fps:.0f}fps  {total} frames')
-        log_cb('Loading YOLO model...')
+        yolo_skip = max(1, int(yolo_skip))
+        yolo_model_path = _yolo_model_path(yolo_model_label)
+        log_cb(f'Loading YOLO {yolo_model_label.lower()} model...')
+        log_cb(f'Frame skip: every {yolo_skip} frame{"s" if yolo_skip != 1 else ""}')
 
         is_car_counter = mode == 'car_counter'
         yolo_classes   = [2, 5, 7] if is_car_counter else [0]
         unit_label     = 'Vehicle' if is_car_counter else 'Person'
         count_label    = 'vehicle' if is_car_counter else 'person'
 
-        model       = YOLO(YOLO_MODEL)
+        model       = YOLO(yolo_model_path)
         axis        = 'x' if direction in ('left', 'right') else 'y'
         line        = int((width if axis == 'x' else height) * line_pos)
         x_range     = (int(width * line_x_start), int(width * line_x_end)) if (line_x_start > 0.01 or line_x_end < 0.99) else None
@@ -378,22 +448,23 @@ def run_processing(
         pending: list = []
         daily: dict   = {}
         frame_num     = 0
+        preview_interval = max(1, total // 360) if total > 0 else 30
 
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             frame_num += 1
-            progress_cb(frame_num / total, count)
+            progress_cb(frame_num / max(total, 1), count)
 
-            # Send a live preview frame to the UI every 90 frames
-            if frame_cb and frame_num % 90 == 0:
+            # Keep the preview moving with the progress bar without flooding the UI thread.
+            if frame_cb and (frame_num == 1 or frame_num % preview_interval == 0):
                 try:
                     frame_cb(frame.copy())
                 except Exception:
                     pass
 
-            if frame_num % YOLO_SKIP != 0:
+            if frame_num % yolo_skip != 0:
                 continue
 
             results = model.track(frame, classes=yolo_classes, conf=YOLO_CONF,
@@ -509,19 +580,18 @@ class App(ctk.CTk):
         super().__init__()
         self.title('PiVision Processor')
 
-        # Load and apply saved theme before building any UI
-        self._current_theme = 'light'
-        try:
-            _prefs = json.loads((Path.home() / '.pivision_prefs.json').read_text())
-            self._current_theme = _prefs.get('theme', 'light')
-        except Exception:
-            pass
-        self._apply_theme(self._current_theme)
+        self.configure(fg_color=BG)
 
         self.session: dict | None = None
         self.video_path: str | None = None
         self._preview_frame = None
         self._tk_img = None
+        self._dropzone_img = None
+        self._header_logo_img = None
+        self._calendar_frame = None
+        self._calendar_widget = None
+        self._calendar_visible = False
+        self._work_frame = None
         self.line_pos    = 0.5
         self.line_x_start = 0.0   # left edge of counting line (fraction 0-1)
         self.line_x_end   = 1.0   # right edge of counting line (fraction 0-1)
@@ -536,6 +606,8 @@ class App(ctk.CTk):
         self._date_var: ctk.StringVar | None = None
         self._hour_var: ctk.StringVar | None = None
         self._min_var:  ctk.StringVar | None = None
+        self._model_var: ctk.StringVar | None = None
+        self._skip_var:  ctk.StringVar | None = None
 
         saved = load_session()
         if saved and saved.get('refreshToken'):
@@ -724,36 +796,6 @@ class App(ctk.CTk):
 
         threading.Thread(target=attempt, daemon=True).start()
 
-
-    # ── Theme ─────────────────────────────────────────────────────────────────────────────────────────
-
-    def _apply_theme(self, mode: str) -> None:
-        global BG, BG2, BG3, HOVER, TEXT, DIM
-        self._current_theme = mode
-        colors = _DARK if mode == 'dark' else _LIGHT
-        BG = colors['BG']; BG2 = colors['BG2']; BG3 = colors['BG3']
-        HOVER = colors['HOVER']; TEXT = colors['TEXT']; DIM = colors['DIM']
-        ctk.set_appearance_mode(mode)
-        self.configure(fg_color=BG)
-
-    def _toggle_theme(self) -> None:
-        new_mode = 'dark' if self._current_theme == 'light' else 'light'
-        self._apply_theme(new_mode)
-        # Persist preference
-        try:
-            _pf = Path.home() / '.pivision_prefs.json'
-            prefs = json.loads(_pf.read_text()) if _pf.exists() else {}
-            prefs['theme'] = new_mode
-            _pf.write_text(json.dumps(prefs))
-        except Exception:
-            pass
-        # Rebuild current screen with new colors
-        if self.session:
-            self._show_main()
-        else:
-            self._show_signin()
-
-
     # ── Screen helpers ────────────────────────────────────────────────────────────────────────────
 
     def _clear(self) -> None:
@@ -778,13 +820,13 @@ class App(ctk.CTk):
         ctk.CTkLabel(f, text='Signing in…', font=('Helvetica', 12),
                      text_color=DIM).pack()
 
-
     # ── Sign-in screen ───────────────────────────────────────────────────────────────────────────
 
     def _show_signin(self) -> None:
         self._clear()
         self.geometry('440x530')
         self.resizable(False, False)
+        self.configure(fg_color=BG)
 
         # ── Top title area ─────────────────────────────────────────────────
         top = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
@@ -809,7 +851,10 @@ class App(ctk.CTk):
                      text_color=DIM).pack()
 
         # ── Card ───────────────────────────────────────────────────────────
-        card  = ctk.CTkFrame(self, fg_color=BG2, corner_radius=16)
+        card  = ctk.CTkFrame(
+            self, fg_color=_blend(PANEL, '#ffffff', 0.035),
+            corner_radius=16, border_width=1, border_color=BORDER,
+        )
         card.pack(fill='x', padx=28, pady=20)
         inner = ctk.CTkFrame(card, fg_color='transparent', corner_radius=0)
         inner.pack(fill='x', padx=26, pady=24)
@@ -819,7 +864,7 @@ class App(ctk.CTk):
         self._email_var   = ctk.StringVar()
         self._email_entry = ctk.CTkEntry(
             inner, textvariable=self._email_var, font=('Helvetica', 13),
-            fg_color=BG3, text_color=TEXT, border_color='#c7c7cc',
+            fg_color=_blend(FIELD, '#ffffff', 0.04), text_color=TEXT, border_color=BORDER,
             border_width=1, height=42, placeholder_text='you@company.com',
             placeholder_text_color=DIM,
         )
@@ -830,7 +875,7 @@ class App(ctk.CTk):
         self._pw_var = ctk.StringVar()
         pw = ctk.CTkEntry(
             inner, textvariable=self._pw_var, font=('Helvetica', 13),
-            fg_color=BG3, text_color=TEXT, border_color='#c7c7cc',
+            fg_color=_blend(FIELD, '#ffffff', 0.04), text_color=TEXT, border_color=BORDER,
             border_width=1, height=42, show='•',
         )
         pw.pack(fill='x', pady=(5, 18))
@@ -842,8 +887,9 @@ class App(ctk.CTk):
 
         self._signin_btn = ctk.CTkButton(
             inner, text='Sign In', font=('Helvetica', 13, 'bold'),
-            fg_color=ACCENT, hover_color='#2563eb', text_color='white',
-            height=46, corner_radius=10, command=self._do_signin,
+            fg_color='#3f98ff', hover_color='#5ab7ff', text_color='white',
+            height=46, corner_radius=10, border_width=1, border_color='#7cc8ff',
+            command=self._do_signin,
         )
         self._signin_btn.pack(fill='x')
 
@@ -914,8 +960,9 @@ class App(ctk.CTk):
 
     def _show_main(self) -> None:
         self._clear()
-        self.geometry('800x760')
+        self.geometry('980x860')
         self.resizable(True, True)
+        self.configure(fg_color=BG)
         s    = self.session
         mode = s.get('mode', 'people_counter')
 
@@ -924,113 +971,157 @@ class App(ctk.CTk):
 
         if is_seatbelt:
             mode_label = 'Seatbelt Compliance'
-            mode_color = AMBER
         elif is_car_counter:
             mode_label = 'Car Counter'
-            mode_color = GREEN
         else:
             mode_label = 'People Counter'
-            mode_color = ACCENT
 
-        hdr = ctk.CTkFrame(self, fg_color=BG2, corner_radius=0, height=58)
+        hdr = ctk.CTkFrame(self, fg_color=_blend(BG2, '#ffffff', 0.05), corner_radius=0, height=70)
         hdr.pack(fill='x')
         hdr.pack_propagate(False)
-        ctk.CTkLabel(hdr, text='PiVision', font=('Helvetica', 15, 'bold'),
-                     text_color=TEXT).pack(side='left', padx=(20, 6))
-        ctk.CTkLabel(hdr, text=mode_label, font=('Helvetica', 10, 'bold'),
-                     text_color='white', fg_color=mode_color, corner_radius=6,
-                     padx=9, pady=3).pack(side='left', pady=18)
-        ctk.CTkButton(hdr, text='Sign Out', font=('Helvetica', 10),
-                      fg_color=BG3, hover_color=HOVER, text_color=DIM, width=80, height=28,
-                      corner_radius=8, command=self._sign_out).pack(side='right', padx=14)
-        _theme_icon = '☀' if self._current_theme == 'dark' else '☾'
-        ctk.CTkButton(hdr, text=_theme_icon, font=('Helvetica', 14),
-                      fg_color=BG3, hover_color=HOVER, text_color=DIM, width=34, height=28,
-                      corner_radius=8, command=self._toggle_theme).pack(side='right', padx=(0, 4))
+        if LOGO_HOLO_PATH:
+            try:
+                _logo_raw = Image.open(LOGO_HOLO_PATH).convert('RGBA')
+                _logo_ctk = ctk.CTkImage(light_image=_logo_raw, dark_image=_logo_raw, size=(34, 34))
+                ctk.CTkLabel(hdr, image=_logo_ctk, text='').pack(side='left', padx=(28, 8))
+                self._header_logo_img = _logo_ctk
+            except Exception:
+                pass
+        ctk.CTkLabel(hdr, text='PiVision', font=('Helvetica', 19, 'bold'),
+                     text_color=TEXT).pack(side='left', padx=(0 if LOGO_HOLO_PATH else 34, 12))
+        ctk.CTkButton(hdr, text='Sign Out', font=('Helvetica', 12),
+                      fg_color=_blend(FIELD, '#ffffff', 0.04), hover_color=HOVER, text_color=TEXT, width=92, height=34,
+                      corner_radius=10, border_width=1, border_color=BORDER,
+                      command=self._sign_out).pack(side='right', padx=(10, 24))
         ctk.CTkLabel(hdr, text=f'{s["companyName"]}  ·  {s["email"]}',
-                     font=('Helvetica', 10), text_color=DIM).pack(side='right', padx=(0, 6))
+                     font=('Helvetica', 11), text_color=DIM).pack(side='right', padx=(0, 16))
+        ctk.CTkLabel(hdr, text=mode_label, font=('Helvetica', 11),
+                     text_color=DIM).pack(side='right', padx=(0, 14))
 
-        self.minsize(720, 680)
+        self.minsize(860, 760)
 
-        loc_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        loc_row.pack(fill='x', padx=20, pady=(12, 8))
-        ctk.CTkLabel(loc_row, text='Location:', font=('Helvetica', 12),
-                     text_color=DIM).pack(side='left')
-        self._loc_var   = ctk.StringVar()
-        self._loc_entry = ctk.CTkEntry(
-            loc_row, textvariable=self._loc_var, font=('Helvetica', 13),
-            fg_color=BG2, text_color=TEXT, border_color=BG3,
-            placeholder_text='e.g. North Entrance, Parking Lot A...',
-            width=260, height=36,
+        shell = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        shell.pack(fill='both', expand=True, padx=10, pady=(10, 12))
+
+        panel = ctk.CTkFrame(
+            shell, fg_color=_blend(PANEL, '#ffffff', 0.04), corner_radius=14,
+            border_width=1, border_color=BORDER, bg_color=BG,
         )
-        self._loc_entry.pack(side='left', padx=(10, 0))
-        # ▼ dropdown button — shows all saved locations
-        ctk.CTkButton(
-            loc_row, text='▼', width=30, height=36,
-            fg_color=BG2, hover_color=BG3, text_color=DIM,
-            border_color=BG3, border_width=1, font=('Helvetica', 10),
-            command=self._show_all_locations,
-        ).pack(side='left', padx=(2, 0))
+        panel.pack(fill='both', expand=True)
 
-        # ── Video start date/time — optional, right of location ──────────────
-        ctk.CTkLabel(loc_row, text='Date:', font=('Helvetica', 11),
-                     text_color=DIM).pack(side='left', padx=(14, 0))
+        # ── Metadata row ──────────────────────────────────────────────────
+        meta_row = ctk.CTkFrame(panel, fg_color='transparent', corner_radius=0)
+        meta_row.pack(fill='x', padx=24, pady=(20, 14))
+        ctk.CTkLabel(meta_row, text='Location:', font=('Helvetica', 12),
+                     text_color=TEXT).pack(side='left')
+        self._loc_var = ctk.StringVar()
+        self._loc_entry = ctk.CTkComboBox(
+            meta_row, variable=self._loc_var,
+            values=list(s.get('devices', [])) or [''],
+            fg_color=_blend(FIELD, '#ffffff', 0.04), border_color=BORDER, border_width=1,
+            button_color=_blend(FIELD, '#ffffff', 0.04), button_hover_color=HOVER,
+            dropdown_fg_color=BG2, dropdown_text_color=TEXT,
+            dropdown_hover_color=HOVER, text_color=TEXT,
+            width=300, height=36, corner_radius=8, font=('Helvetica', 11),
+            dropdown_font=('Helvetica', 11),
+        )
+        self._loc_entry.pack(side='left', padx=(12, 22))
+
+        ctk.CTkLabel(meta_row, text='Date:', font=('Helvetica', 12),
+                     text_color=TEXT).pack(side='left')
         self._date_var = ctk.StringVar()
-        ctk.CTkEntry(
-            loc_row, textvariable=self._date_var, font=('Helvetica', 11),
-            fg_color=BG2, text_color=TEXT, border_color=BG3,
-            placeholder_text='YYYY-MM-DD', width=112, height=32,
-        ).pack(side='left', padx=(6, 0))
-        # 📅 calendar picker button
-        _cal_btn = ctk.CTkButton(
-            loc_row, text='📅', width=32, height=32,
-            fg_color=BG2, hover_color=BG3, text_color=TEXT,
-            border_color=BG3, border_width=1, font=('Helvetica', 13),
+        _date_entry = ctk.CTkEntry(
+            meta_row, textvariable=self._date_var, font=('Helvetica', 11),
+            fg_color=_blend(FIELD, '#ffffff', 0.04), text_color=TEXT, border_color=BORDER, border_width=1,
+            placeholder_text='Select date', placeholder_text_color=DIM,
+            width=132, height=36, corner_radius=8,
         )
-        _cal_btn.configure(command=lambda b=_cal_btn: self._show_calendar(b))
-        _cal_btn.pack(side='left', padx=(2, 0))
+        _date_entry.pack(side='left', padx=(12, 0))
+        _cal_btn = ctk.CTkButton(
+            meta_row, text='Cal', width=48, height=36, corner_radius=8,
+            fg_color=_blend(FIELD, '#ffffff', 0.04), hover_color=HOVER, text_color=TEXT,
+            border_color=BORDER, border_width=1, font=('Helvetica', 11),
+            command=self._toggle_calendar,
+        )
+        _cal_btn.pack(side='left', padx=(0, 8))
 
-        _hours   = [f'{h:02d}' for h in range(24)]
-        _minutes = [f'{m:02d}' for m in range(0, 60, 5)]
         self._hour_var = ctk.StringVar(value='00')
         self._min_var  = ctk.StringVar(value='00')
         ctk.CTkOptionMenu(
-            loc_row, variable=self._hour_var, values=_hours,
-            fg_color=BG2, button_color=BG3, button_hover_color=HOVER,
+            meta_row, variable=self._hour_var,
+            values=[f'{h:02d}' for h in range(24)],
+            fg_color=_blend(FIELD, '#ffffff', 0.04), button_color=_blend(FIELD, '#ffffff', 0.04), button_hover_color=HOVER,
             text_color=TEXT, dropdown_fg_color=BG2, dropdown_text_color=TEXT,
-            width=64, height=32, font=('Helvetica', 11),
-        ).pack(side='left', padx=(6, 0))
+            dropdown_hover_color=HOVER, width=58, height=36, font=('Helvetica', 11),
+            dropdown_font=('Helvetica', 11),
+        ).pack(side='left')
         ctk.CTkOptionMenu(
-            loc_row, variable=self._min_var, values=_minutes,
-            fg_color=BG2, button_color=BG3, button_hover_color=HOVER,
+            meta_row, variable=self._min_var,
+            values=[f'{m:02d}' for m in range(0, 60, 5)],
+            fg_color=_blend(FIELD, '#ffffff', 0.04), button_color=_blend(FIELD, '#ffffff', 0.04), button_hover_color=HOVER,
             text_color=TEXT, dropdown_fg_color=BG2, dropdown_text_color=TEXT,
-            width=64, height=32, font=('Helvetica', 11),
-        ).pack(side='left', padx=(4, 0))
-        ctk.CTkLabel(loc_row, text='(optional)', font=('Helvetica', 10),
-                     text_color=DIM).pack(side='left', padx=(6, 0))
+            dropdown_hover_color=HOVER, width=58, height=36, font=('Helvetica', 11),
+            dropdown_font=('Helvetica', 11),
+        ).pack(side='left', padx=(8, 0))
+        ctk.CTkLabel(meta_row, text='Optional', font=('Helvetica', 11),
+                     text_color=DIM).pack(side='left', padx=(10, 0))
 
-        self._sugg_frame = ctk.CTkFrame(self, fg_color=BG2, corner_radius=6,
-                                         border_width=1, border_color=BG3)
+        self._calendar_frame = self._build_calendar_panel(panel)
+        self._calendar_visible = False
+
         self._existing_locations: list[str] = list(s.get('devices', []))
-        self._loc_var.trace_add('write', self._on_loc_change)
         self._load_locations()
 
-        ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x')
+        work = ctk.CTkFrame(
+            panel, fg_color=_blend(BG2, '#ffffff', 0.035), corner_radius=12,
+            border_width=1, border_color=BORDER,
+            bg_color=_blend(PANEL, '#ffffff', 0.04),
+        )
+        self._work_frame = work
+        work.pack(fill='both', expand=True, padx=14, pady=(0, 14))
 
-        vpick = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        vpick.pack(fill='x', padx=20, pady=(10, 6))
-        ctk.CTkButton(vpick, text='Browse for Video', font=('Helvetica', 12),
-                      fg_color=ACCENT, hover_color='#0051a8', text_color='white',
-                      height=36, command=self._pick_video).pack(side='left')
+        vpick = ctk.CTkFrame(work, fg_color='transparent', corner_radius=0)
+        vpick.pack(fill='x', padx=14, pady=(14, 12))
+        ctk.CTkButton(vpick, text='⇧  Browse for Video', font=('Helvetica', 12, 'bold'),
+                      fg_color='#3f98ff', hover_color='#5ab7ff', text_color='white',
+                      height=42, width=190, corner_radius=8, border_width=1,
+                      border_color='#7cc8ff',
+                      command=self._pick_video).pack(side='left')
         self._video_label = ctk.CTkLabel(vpick, text='No video selected',
-                                          font=('Helvetica', 11), text_color=DIM)
-        self._video_label.pack(side='left', padx=14)
+                                          font=('Helvetica', 12), text_color=TEXT)
+        self._video_label.pack(side='left', padx=16)
+        self._skip_var = ctk.StringVar(value=str(DEFAULT_FRAME_SKIP))
+        ctk.CTkOptionMenu(
+            vpick, variable=self._skip_var,
+            values=[str(i) for i in range(1, 11)],
+            fg_color=_blend(FIELD, '#ffffff', 0.04),
+            button_color=_blend(FIELD, '#ffffff', 0.04),
+            button_hover_color=HOVER,
+            text_color=TEXT, dropdown_fg_color=BG2, dropdown_text_color=TEXT,
+            dropdown_hover_color=HOVER, width=76, height=34,
+            font=('Helvetica', 11), dropdown_font=('Helvetica', 11),
+        ).pack(side='right', padx=(8, 0))
+        ctk.CTkLabel(vpick, text='Skip', font=('Helvetica', 11),
+                     text_color=DIM).pack(side='right', padx=(16, 0))
+        self._model_var = ctk.StringVar(value=DEFAULT_MODEL)
+        ctk.CTkOptionMenu(
+            vpick, variable=self._model_var,
+            values=list(MODEL_OPTIONS.keys()),
+            fg_color=_blend(FIELD, '#ffffff', 0.04),
+            button_color=_blend(FIELD, '#ffffff', 0.04),
+            button_hover_color=HOVER,
+            text_color=TEXT, dropdown_fg_color=BG2, dropdown_text_color=TEXT,
+            dropdown_hover_color=HOVER, width=112, height=34,
+            font=('Helvetica', 11), dropdown_font=('Helvetica', 11),
+        ).pack(side='right')
+        ctk.CTkLabel(vpick, text='Model', font=('Helvetica', 11),
+                     text_color=DIM).pack(side='right', padx=(0, 8))
 
-        canvas_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        canvas_wrap.pack(fill='x', padx=20)
+        canvas_wrap = ctk.CTkFrame(work, fg_color='transparent', corner_radius=0)
+        canvas_wrap.pack(fill='x', padx=14)
         self._canvas = tk.Canvas(
             canvas_wrap, width=PREVIEW_W, height=PREVIEW_H,
-            bg=BG3, highlightthickness=1, highlightbackground=BG3,
+            bg=_blend(BG2, '#ffffff', 0.035), highlightthickness=0,
             cursor='crosshair' if not is_seatbelt else 'arrow',
         )
         self._canvas.pack()
@@ -1050,27 +1141,28 @@ class App(ctk.CTk):
         self._draw_placeholder()
 
         if not is_seatbelt:
-            ctrl = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-            ctrl.pack(fill='x', padx=20, pady=(10, 4))
+            ctrl = ctk.CTkFrame(work, fg_color='transparent', corner_radius=0)
+            ctrl.pack(fill='x', padx=14, pady=(18, 8))
             ctk.CTkLabel(ctrl, text='Direction:', font=('Helvetica', 12),
-                         text_color=DIM).pack(side='left')
+                         text_color=TEXT).pack(side='left')
 
             self._dir_btns: dict[str, ctk.CTkButton] = {}
             for label, val in [('↓ Down', 'down'), ('↑ Up', 'up'),
                                ('← Left', 'left'), ('→ Right', 'right')]:
                 b = ctk.CTkButton(
-                    ctrl, text=label, font=('Helvetica', 11),
-                    width=80, height=30, fg_color=BG3, hover_color=HOVER,
-                    text_color=DIM, command=lambda v=val: self._set_direction(v),
+                    ctrl, text=label, font=('Helvetica', 12),
+                    width=92, height=42, fg_color=_blend(FIELD, '#ffffff', 0.025), hover_color=HOVER,
+                    text_color=TEXT, corner_radius=8, border_width=1,
+                    border_color=BORDER, command=lambda v=val: self._set_direction(v),
                 )
-                b.pack(side='left', padx=3)
+                b.pack(side='left', padx=(10 if not self._dir_btns else 8, 0))
                 self._dir_btns[val] = b
             self._update_dir_buttons()
 
-            pos_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-            pos_row.pack(fill='x', padx=20, pady=(0, 6))
+            pos_row = ctk.CTkFrame(work, fg_color='transparent', corner_radius=0)
+            pos_row.pack(fill='x', padx=14, pady=(0, 12))
             ctk.CTkLabel(pos_row, text='Position:', font=('Helvetica', 12),
-                         text_color=DIM).pack(side='left')
+                         text_color=TEXT).pack(side='left')
             self._line_label = ctk.CTkLabel(pos_row, text='50%',
                                              font=('Helvetica', 12, 'bold'),
                                              text_color=TEXT, width=40)
@@ -1078,51 +1170,52 @@ class App(ctk.CTk):
             self._slider = ctk.CTkSlider(
                 pos_row, from_=5, to=95, number_of_steps=90,
                 fg_color=BG3, progress_color=ACCENT, button_color=ACCENT,
-                button_hover_color='#2563eb', command=self._on_slider,
+                button_hover_color='#75b6ff', command=self._on_slider,
             )
             self._slider.set(50)
             self._slider.pack(side='left', fill='x', expand=True, padx=(10, 10))
 
             # Lane boundary — single row: L [start slider] [end slider] R
-            lane_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-            lane_row.pack(fill='x', padx=20, pady=(0, 6))
+            lane_row = ctk.CTkFrame(work, fg_color='transparent', corner_radius=0)
+            lane_row.pack(fill='x', padx=14, pady=(0, 14))
             ctk.CTkLabel(lane_row, text='Lane:', font=('Helvetica', 12),
-                         text_color=DIM).pack(side='left')
+                         text_color=TEXT).pack(side='left')
             self._lane_start_name = ctk.CTkLabel(lane_row, text='L',
-                         font=('Helvetica', 11, 'bold'), text_color=DIM, width=16)
+                         font=('Helvetica', 11, 'bold'), text_color=TEXT, width=16)
             self._lane_start_name.pack(side='left', padx=(8, 0))
             self._lane_start_slider = ctk.CTkSlider(
                 lane_row, from_=0, to=90, number_of_steps=90,
-                fg_color=BG3, progress_color=BG3, button_color=GREEN,
-                button_hover_color='#059669', command=self._on_lane_start_slider,
+                fg_color=BG3, progress_color=BG3, button_color=ACCENT,
+                button_hover_color='#75b6ff', command=self._on_lane_start_slider,
             )
             self._lane_start_slider.set(0)
             self._lane_start_slider.pack(side='left', fill='x', expand=True, padx=(4, 4))
             self._lane_end_slider = ctk.CTkSlider(
                 lane_row, from_=10, to=100, number_of_steps=90,
-                fg_color=BG3, progress_color=BG3, button_color=GREEN,
-                button_hover_color='#059669', command=self._on_lane_end_slider,
+                fg_color=BG3, progress_color=BG3, button_color=ACCENT,
+                button_hover_color='#75b6ff', command=self._on_lane_end_slider,
             )
             self._lane_end_slider.set(100)
             self._lane_end_slider.pack(side='left', fill='x', expand=True, padx=(4, 4))
             self._lane_end_name = ctk.CTkLabel(lane_row, text='R',
-                         font=('Helvetica', 11, 'bold'), text_color=DIM, width=16)
+                         font=('Helvetica', 11, 'bold'), text_color=TEXT, width=16)
             self._lane_end_name.pack(side='left')
             self._lane_start_label = None
             self._lane_end_label   = None
         else:
-            dir_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-            dir_row.pack(fill='x', padx=20, pady=(10, 4))
+            dir_row = ctk.CTkFrame(work, fg_color='transparent', corner_radius=0)
+            dir_row.pack(fill='x', padx=14, pady=(18, 8))
             ctk.CTkLabel(dir_row, text='Traffic Direction:', font=('Helvetica', 12),
-                         text_color=DIM).pack(side='left')
+                         text_color=TEXT).pack(side='left')
             self._vdir_btns: dict[str, ctk.CTkButton] = {}
             for label, val in [('↓ Towards Camera', 'towards'), ('↔ Both', 'both')]:
                 b = ctk.CTkButton(
                     dir_row, text=label, font=('Helvetica', 11),
-                    width=150, height=30, fg_color=BG3, hover_color=HOVER,
-                    text_color=DIM, command=lambda v=val: self._set_vehicle_dir(v),
+                    width=150, height=42, fg_color=_blend(FIELD, '#ffffff', 0.025), hover_color=HOVER,
+                    text_color=TEXT, corner_radius=8, border_width=1,
+                    border_color=BORDER, command=lambda v=val: self._set_vehicle_dir(v),
                 )
-                b.pack(side='left', padx=3)
+                b.pack(side='left', padx=(10 if not self._vdir_btns else 8, 0))
                 self._vdir_btns[val] = b
             self._update_vdir_buttons()
 
@@ -1136,30 +1229,30 @@ class App(ctk.CTk):
             self._lane_start_name   = None
             self._lane_end_name     = None
 
-        ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x', pady=(2, 0))
-
-        run_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        run_row.pack(fill='x', padx=20, pady=12)
+        run_row = ctk.CTkFrame(panel, fg_color='transparent', corner_radius=0)
+        run_row.pack(fill='x', padx=18, pady=(12, 8))
         self._run_btn = ctk.CTkButton(
-            run_row, text='Process Video', font=('Helvetica', 13, 'bold'),
-            fg_color=SUCCESS, hover_color='#28a745', text_color='white',
-            height=42, corner_radius=10, command=self._run,
+            run_row, text='▷  Process Video', font=('Helvetica', 14, 'bold'),
+            fg_color='#3f98ff', hover_color='#5ab7ff', text_color='white',
+            width=190, height=50, corner_radius=10, border_width=1,
+            border_color='#7cc8ff', command=self._run,
         )
         self._run_btn.pack(side='left')
         self._status_label = ctk.CTkLabel(run_row, text='', font=('Helvetica', 11),
-                                           text_color=DIM)
+                                           text_color=TEXT)
         self._status_label.pack(side='left', padx=16)
 
-        self._progress = ctk.CTkProgressBar(self, progress_color=ACCENT, fg_color=BG2,
-                                             height=6, corner_radius=3)
-        self._progress.pack(fill='x', padx=20, pady=(0, 8))
+        self._progress = ctk.CTkProgressBar(panel, progress_color=ACCENT, fg_color=BG3,
+                                             height=7, corner_radius=5)
+        self._progress.pack(fill='x', padx=18, pady=(2, 10))
         self._progress.set(0)
 
-        log_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        log_wrap.pack(fill='both', expand=True, padx=20, pady=(0, 16))
+        log_wrap = ctk.CTkFrame(panel, fg_color='transparent', corner_radius=0)
+        log_wrap.pack(fill='both', expand=True, padx=18, pady=(0, 14))
         self._log_text = ctk.CTkTextbox(log_wrap, font=('Menlo', 10),
                                          fg_color=BG_DARK, text_color='#a8b2c8',
-                                         corner_radius=10)
+                                         corner_radius=10, border_width=1,
+                                         border_color='#263a63')
         self._log_text.pack(fill='both', expand=True)
         self._log_text.configure(state='disabled')
 
@@ -1176,16 +1269,23 @@ class App(ctk.CTk):
         else:
             line1 = 'Drop a video here or click Browse'
             line2 = 'Then click anywhere to set the counting line'
+        self._dropzone_img = ImageTk.PhotoImage(_make_dropzone_bg(PREVIEW_W, PREVIEW_H))
+        self._canvas.create_image(0, 0, anchor='nw', image=self._dropzone_img)
+        pad = 28
+        self._canvas.create_rectangle(
+            pad, pad, PREVIEW_W - pad, PREVIEW_H - pad,
+            outline='#9aabd0', dash=(3, 3), width=1,
+        )
         self._canvas.create_text(
             PREVIEW_W // 2, PREVIEW_H // 2 - (12 if line2 else 0),
-            text=line1, fill='#8e8e93',
-            font=('Helvetica', 13), justify='center',
+            text=line1, fill=TEXT,
+            font=('Helvetica', 15), justify='center',
         )
         if line2:
             self._canvas.create_text(
                 PREVIEW_W // 2, PREVIEW_H // 2 + 16,
-                text=line2, fill='#aeaeb2',
-                font=('Helvetica', 11), justify='center',
+                text=line2, fill=DIM,
+                font=('Helvetica', 12), justify='center',
             )
 
     def _on_video_drop(self, event) -> None:
@@ -1272,7 +1372,9 @@ class App(ctk.CTk):
                             (max(lx + 4, 4), max(y1 + 16, 20)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (239, 68, 68), 1)
 
-        padded = Image.new('RGB', (PREVIEW_W, PREVIEW_H), (229, 229, 234))
+        bg_hex = CANVAS_BG.lstrip('#')
+        bg_rgb = tuple(int(bg_hex[i:i + 2], 16) for i in (0, 2, 4))
+        padded = Image.new('RGB', (PREVIEW_W, PREVIEW_H), bg_rgb)
         ox = (PREVIEW_W - nw) // 2
         oy = (PREVIEW_H - nh) // 2
         padded.paste(Image.fromarray(frame), (ox, oy))
@@ -1294,12 +1396,24 @@ class App(ctk.CTk):
     def _load_locations(self) -> None:
         def fetch():
             try:
+                try:  # refresh token first
+                    tokens = fb_refresh(self.session.get('refreshToken', ''))
+                    self.session['token'] = tokens['idToken']
+                    self.session['refreshToken'] = tokens['refreshToken']
+                    save_session(self.session)
+                except Exception:
+                    pass
                 data = fb_get(f'companies/{self.session["companyId"]}/devices',
                               self.session['token'])
                 if isinstance(data, dict):
                     self._existing_locations = sorted(data.keys())
-            except Exception:
-                pass
+                elif isinstance(data, list):
+                    self._existing_locations = sorted(str(x) for x in data if x)
+                if self._existing_locations:
+                    self.after(0, lambda: self._loc_entry.configure(
+                        values=self._existing_locations))
+            except Exception as e:
+                print(f'[locations] {e}')
         threading.Thread(target=fetch, daemon=True).start()
 
     def _on_loc_change(self, *_) -> None:
@@ -1342,36 +1456,25 @@ class App(ctk.CTk):
                 command=lambda l=loc: self._pick_location(l),
             ).pack(fill='x', padx=4, pady=1)
 
-    def _show_calendar(self, anchor_widget=None) -> None:
-        """Chromeless dropdown calendar — appears directly below the button."""
+    def _build_calendar_panel(self, parent):
+        """Inline calendar panel. No popup windows, no stacking."""
         try:
             from tkcalendar import Calendar as _Cal
-            import tkinter as _tk
             import tkinter.ttk as _ttk
         except ImportError:
-            return
+            return None
 
-        # Chromeless window — no title bar, looks like a dropdown
-        popup = _tk.Toplevel(self)
-        popup.overrideredirect(True)
-        popup.configure(bg=BG2)
+        frame = ctk.CTkFrame(
+            parent, fg_color=_blend(BG2, '#ffffff', 0.035),
+            border_width=1, border_color=BORDER, corner_radius=12,
+        )
 
         # Force clam theme so our colors work on macOS (native 'aqua' ignores them)
-        _style = _ttk.Style(popup)
+        _style = _ttk.Style(frame)
         try:
             _style.theme_use('clam')
         except Exception:
             pass
-
-        # Position flush below the anchor widget
-        if anchor_widget:
-            self.update_idletasks()
-            x = anchor_widget.winfo_rootx()
-            y = anchor_widget.winfo_rooty() + anchor_widget.winfo_height() + 2
-        else:
-            x = self.winfo_rootx() + 220
-            y = self.winfo_rooty() + 120
-        popup.geometry(f'256x228+{x}+{y}')
 
         init_date = datetime.now()
         try:
@@ -1380,7 +1483,7 @@ class App(ctk.CTk):
             pass
 
         cal = _Cal(
-            popup, selectmode='day',
+            frame, selectmode='day',
             year=init_date.year, month=init_date.month, day=init_date.day,
             date_pattern='y-mm-dd',
             background=BG2, foreground=TEXT,
@@ -1392,32 +1495,51 @@ class App(ctk.CTk):
             bordercolor=BG3, font=('Helvetica', 10),
             showweeknumbers=False,
         )
-        cal.pack(fill='both', expand=True, padx=1, pady=1)
+        cal.pack(fill='x', padx=10, pady=(10, 6))
+        cal.bind('<<CalendarSelected>>', lambda _: self._select_calendar_date(cal.get_date()))
+        self._calendar_widget = cal
 
-        btn_row = _tk.Frame(popup, bg=BG2)
-        btn_row.pack(fill='x', padx=8, pady=(0, 8))
+        btn_row = ctk.CTkFrame(frame, fg_color='transparent', corner_radius=0)
+        btn_row.pack(fill='x', padx=10, pady=(0, 10))
 
-        def _pick():
-            self._date_var.set(cal.get_date())
-            popup.destroy()
+        ctk.CTkButton(
+            btn_row, text='Today', font=('Helvetica', 11, 'bold'),
+            fg_color=FIELD, hover_color=HOVER, text_color=TEXT,
+            height=30, corner_radius=7, command=self._select_today,
+        ).pack(side='left', fill='x', expand=True, padx=(0, 4))
+        ctk.CTkButton(
+            btn_row, text='Select', font=('Helvetica', 11, 'bold'),
+            fg_color=ACCENT, hover_color='#2f80ed', text_color='white',
+            height=30, corner_radius=7,
+            command=lambda: self._select_calendar_date(cal.get_date()),
+        ).pack(side='left', fill='x', expand=True, padx=(4, 0))
 
-        def _today():
-            self._date_var.set(datetime.now().strftime('%Y-%m-%d'))
-            popup.destroy()
+        return frame
 
-        _b = dict(relief='flat', bd=0, font=('Helvetica', 11), cursor='hand2')
-        _tk.Button(btn_row, text='Today', bg=BG3, fg=TEXT,
-                   activebackground=HOVER, activeforeground=TEXT,
-                   command=_today, **_b).pack(side='left', padx=(0, 4), ipady=3, ipadx=10)
-        _tk.Button(btn_row, text='Select', bg=ACCENT, fg='white',
-                   activebackground='#0051a8', activeforeground='white',
-                   command=_pick, **_b).pack(side='left', ipady=3, ipadx=10)
+    def _toggle_calendar(self) -> None:
+        if self._calendar_frame is None:
+            return
+        if self._calendar_visible:
+            self._hide_calendar()
+            return
+        pack_opts = {'fill': 'x', 'padx': 24, 'pady': (0, 14)}
+        if self._work_frame is not None:
+            pack_opts['before'] = self._work_frame
+        self._calendar_frame.pack(**pack_opts)
+        self._calendar_visible = True
 
-        # Dismiss when clicking outside
-        def _dismiss(e):
-            popup.after(150, lambda: popup.destroy() if popup.winfo_exists() else None)
-        popup.bind('<FocusOut>', _dismiss)
-        popup.focus_set()
+    def _hide_calendar(self) -> None:
+        if self._calendar_frame is not None:
+            self._calendar_frame.pack_forget()
+        self._calendar_visible = False
+
+    def _select_calendar_date(self, date_str: str) -> None:
+        if self._date_var is not None:
+            self._date_var.set(date_str)
+        self._hide_calendar()
+
+    def _select_today(self) -> None:
+        self._select_calendar_date(datetime.now().strftime('%Y-%m-%d'))
 
 
     # ── Counting line controls ────────────────────────────────────────────────────────────────────────
@@ -1465,9 +1587,9 @@ class App(ctk.CTk):
     def _update_dir_buttons(self) -> None:
         for val, btn in self._dir_btns.items():
             if val == self.direction:
-                btn.configure(fg_color=ACCENT, text_color='white')
+                btn.configure(fg_color='#4f9cff', text_color='white', border_color='#8dc8ff')
             else:
-                btn.configure(fg_color=BG3, text_color=DIM)
+                btn.configure(fg_color=_blend(FIELD, '#ffffff', 0.025), text_color=TEXT, border_color=BORDER)
 
     def _set_vehicle_dir(self, val: str) -> None:
         self._vehicle_dir = val
@@ -1476,9 +1598,9 @@ class App(ctk.CTk):
     def _update_vdir_buttons(self) -> None:
         for val, btn in self._vdir_btns.items():
             if val == self._vehicle_dir:
-                btn.configure(fg_color=AMBER, text_color='white')
+                btn.configure(fg_color=AMBER, text_color='white', border_color=AMBER)
             else:
-                btn.configure(fg_color=BG3, text_color=DIM)
+                btn.configure(fg_color=_blend(FIELD, '#ffffff', 0.025), text_color=TEXT, border_color=BORDER)
 
 
     # ── Run / process ──────────────────────────────────────────────────────────────────────────────────
@@ -1542,6 +1664,11 @@ class App(ctk.CTk):
         mode        = self.session.get('mode', 'people_counter')
         is_seatbelt = mode == 'seatbelt'
         unit        = 'vehicles' if mode in ('seatbelt', 'car_counter') else 'crossings'
+        yolo_model_label = self._model_var.get() if self._model_var is not None else DEFAULT_MODEL
+        try:
+            yolo_skip = int(self._skip_var.get()) if self._skip_var is not None else DEFAULT_FRAME_SKIP
+        except ValueError:
+            yolo_skip = DEFAULT_FRAME_SKIP
 
         # Parse video start date/time from dropdowns
         video_start_ts: float | None = None
@@ -1569,7 +1696,7 @@ class App(ctk.CTk):
         def done_cb(success: bool, count: int) -> None:
             def _update():
                 self._processing = False
-                self._run_btn.configure(state='normal', text='Process Video')
+                self._run_btn.configure(state='normal', text='▷  Process Video')
                 self._status_label.configure(
                     text=f'Done — {count} {unit} written to dashboard' if success
                          else 'Processing failed',
@@ -1608,7 +1735,9 @@ class App(ctk.CTk):
                     'line_x_start':   self.line_x_start,
                     'line_x_end':     self.line_x_end,
                     'video_start_ts': video_start_ts,
-                    'frame_cb':       lambda f: self._frame_queue.put(f) if not self._frame_queue.full() else None,
+                    'yolo_model_label': yolo_model_label,
+                    'yolo_skip': yolo_skip,
+                    'frame_cb':       self._queue_preview_frame,
                 },
                 daemon=True,
             ).start()
@@ -1616,15 +1745,28 @@ class App(ctk.CTk):
 
     # ── Log polling ───────────────────────────────────────────────────────────────────────────────────
 
+    def _queue_preview_frame(self, frame) -> None:
+        while True:
+            try:
+                self._frame_queue.get_nowait()
+            except queue.Empty:
+                break
+        try:
+            self._frame_queue.put_nowait(frame)
+        except queue.Full:
+            pass
+
     def _poll_logs(self) -> None:
         # Live video frame preview
+        latest = None
         try:
-            bgr = self._frame_queue.get_nowait()
-            if hasattr(self, '_canvas'):
-                self._preview_frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-                self._redraw_preview()
+            while True:
+                latest = self._frame_queue.get_nowait()
         except queue.Empty:
             pass
+        if latest is not None and hasattr(self, '_canvas'):
+            self._preview_frame = cv2.cvtColor(latest, cv2.COLOR_BGR2RGB)
+            self._redraw_preview()
 
         # Log messages
         while True:
@@ -1637,7 +1779,7 @@ class App(ctk.CTk):
                     self._log_text.configure(state='disabled')
             except queue.Empty:
                 break
-        self.after(100, self._poll_logs)
+        self.after(33 if self._processing else 100, self._poll_logs)
 
     def _sign_out(self) -> None:
         clear_session()
