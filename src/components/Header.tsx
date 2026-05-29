@@ -52,7 +52,7 @@ export default function Header({ currentPage, onNavigate, isDark, onToggleDark }
   return (
     <header className="header">
       <div className="header-logo">
-        <div className="logo-dot" />
+        <img src="/logo.png" alt="PiVision" style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0 }} />
         <span className="logo-text">PiVision</span>
         {companyName && (
           <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 400, marginLeft: 4 }}>

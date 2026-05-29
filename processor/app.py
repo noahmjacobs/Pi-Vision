@@ -111,6 +111,20 @@ def _yolo_model_path() -> str:
 YOLO_MODEL = _yolo_model_path()
 
 
+# ── Logo path ─────────────────────────────────────────────────────────────────────────────────
+def _logo_path() -> str | None:
+    if getattr(sys, 'frozen', False):
+        bundled = Path(sys._MEIPASS) / 'logo.png'
+        if bundled.exists():
+            return str(bundled)
+    local = Path(__file__).parent / 'logo.png'
+    if local.exists():
+        return str(local)
+    return None
+
+LOGO_PATH = _logo_path()
+
+
 def _tracker_config_path() -> str:
     """Find bytetrack.yaml — bundled copy next to app.py is the most reliable source."""
     if getattr(sys, 'frozen', False):
@@ -699,8 +713,15 @@ class App(ctk.CTk):
         self.resizable(False, False)
         f = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         f.pack(fill='both', expand=True)
-        ctk.CTkLabel(f, text='PiVision', font=('Helvetica', 22, 'bold'),
-                     text_color=TEXT).pack(pady=(40, 6))
+        if LOGO_PATH:
+            _raw = Image.open(LOGO_PATH).convert('RGBA')
+            _logo_ctk = ctk.CTkImage(light_image=_raw, dark_image=_raw, size=(52, 52))
+            ctk.CTkLabel(f, image=_logo_ctk, text='').pack(pady=(30, 0))
+            ctk.CTkLabel(f, text='PiVision', font=('Helvetica', 18, 'bold'),
+                         text_color=TEXT).pack(pady=(8, 4))
+        else:
+            ctk.CTkLabel(f, text='PiVision', font=('Helvetica', 22, 'bold'),
+                         text_color=TEXT).pack(pady=(40, 6))
         ctk.CTkLabel(f, text='Signing in…', font=('Helvetica', 12),
                      text_color=DIM).pack()
 
@@ -716,13 +737,18 @@ class App(ctk.CTk):
         top = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         top.pack(fill='x', pady=(44, 0))
 
-        # Logo mark — rounded square with accent dot
-        logo_frame = ctk.CTkFrame(top, fg_color=BG2, corner_radius=14,
-                                   width=52, height=52)
-        logo_frame.pack()
-        logo_frame.pack_propagate(False)
-        ctk.CTkLabel(logo_frame, text='●', font=('Helvetica', 20),
-                     text_color=ACCENT).place(relx=0.5, rely=0.5, anchor='center')
+        # Logo image (or fallback dot if file missing)
+        if LOGO_PATH:
+            _raw = Image.open(LOGO_PATH).convert('RGBA')
+            _logo_ctk = ctk.CTkImage(light_image=_raw, dark_image=_raw, size=(64, 64))
+            ctk.CTkLabel(top, image=_logo_ctk, text='').pack()
+        else:
+            logo_frame = ctk.CTkFrame(top, fg_color=BG2, corner_radius=14,
+                                       width=52, height=52)
+            logo_frame.pack()
+            logo_frame.pack_propagate(False)
+            ctk.CTkLabel(logo_frame, text='●', font=('Helvetica', 20),
+                         text_color=ACCENT).place(relx=0.5, rely=0.5, anchor='center')
 
         ctk.CTkLabel(top, text='PiVision', font=('Helvetica', 22, 'bold'),
                      text_color=TEXT).pack(pady=(12, 2))

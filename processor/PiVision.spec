@@ -7,7 +7,7 @@ block_cipher = None
 datas = []
 datas += collect_data_files('customtkinter')
 datas += collect_data_files('ultralytics')
-datas += [('icon.icns', '.'), ('icon.ico', '.')]
+datas += [('icon.icns', '.'), ('icon.ico', '.'), ('logo.png', '.')]
 
 # Bundle YOLO model weights so users never need to download them on first run
 import urllib.request, os

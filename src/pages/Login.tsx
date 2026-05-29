@@ -68,22 +68,12 @@ export default function Login() {
       <div style={{ width: '100%', maxWidth: 400, position: 'relative', zIndex: 1 }}>
         {/* Logo mark */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 32 }}>
-          <div style={{
-            width: 54, height: 54, borderRadius: 18,
-            background: 'var(--glass-bg-strong)',
-            backdropFilter: 'blur(24px)',
-            WebkitBackdropFilter: 'blur(24px)',
-            border: '1px solid var(--glass-border)',
-            boxShadow: 'var(--glass-shadow)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            marginBottom: 16,
-          }}>
-            <div style={{
-              width: 20, height: 20, borderRadius: '50%',
-              background: 'var(--accent-blue)',
-              boxShadow: '0 0 0 5px rgba(29,110,244,0.18)',
-            }} />
-          </div>
+          <img
+            src="/logo.png"
+            alt="PiVision"
+            style={{ width: 72, height: 72, borderRadius: 22, marginBottom: 16,
+                     boxShadow: '0 4px 24px rgba(99,102,241,0.25)' }}
+          />
           <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
             PiVision
           </div>
