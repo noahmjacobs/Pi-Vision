@@ -25,7 +25,7 @@ function AppInner({ isDark, onToggleDark }: { isDark: boolean; onToggleDark: () 
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div className="logo-dot" />
+          <img src="/logo.png" alt="PiVision" style={{ width: 28, height: 28, borderRadius: 8 }} />
           <span className="logo-text">PiVision</span>
         </div>
       </div>

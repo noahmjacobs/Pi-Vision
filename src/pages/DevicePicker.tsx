@@ -87,7 +87,7 @@ export default function DevicePicker() {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div className="logo-dot" />
+            <img src="/logo.png" alt="PiVision" style={{ width: 28, height: 28, borderRadius: 8 }} />
             <span className="logo-text" style={{ fontSize: 18 }}>PiVision</span>
           </div>
           <button
