@@ -699,9 +699,9 @@ class App(ctk.CTk):
         self.resizable(False, False)
         f = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         f.pack(fill='both', expand=True)
-        ctk.CTkLabel(f, text='PiVision Processor', font=('Helvetica', 22, 'bold'),
+        ctk.CTkLabel(f, text='PiVision', font=('Helvetica', 22, 'bold'),
                      text_color=TEXT).pack(pady=(40, 6))
-        ctk.CTkLabel(f, text='Signing in...', font=('Helvetica', 12),
+        ctk.CTkLabel(f, text='Signing in…', font=('Helvetica', 12),
                      text_color=DIM).pack()
 
 
@@ -709,39 +709,51 @@ class App(ctk.CTk):
 
     def _show_signin(self) -> None:
         self._clear()
-        self.geometry('420x460')
+        self.geometry('420x490')
         self.resizable(False, False)
 
-        hdr = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0, height=70)
-        hdr.pack(fill='x')
-        hdr.pack_propagate(False)
-        ctk.CTkLabel(hdr, text='PiVision Processor', font=('Helvetica', 20, 'bold'),
-                     text_color='white').pack(expand=True)
+        # ── Top title area ─────────────────────────────────────────────────
+        top = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        top.pack(fill='x', pady=(44, 0))
 
-        card  = ctk.CTkFrame(self, fg_color=BG2, corner_radius=12)
-        card.pack(fill='x', padx=28, pady=24)
-        inner = ctk.CTkFrame(card, fg_color=BG2, corner_radius=0)
-        inner.pack(fill='x', padx=28, pady=24)
+        # Logo mark — rounded square with accent dot
+        logo_frame = ctk.CTkFrame(top, fg_color=BG2, corner_radius=14,
+                                   width=52, height=52)
+        logo_frame.pack()
+        logo_frame.pack_propagate(False)
+        ctk.CTkLabel(logo_frame, text='●', font=('Helvetica', 20),
+                     text_color=ACCENT).place(relx=0.5, rely=0.5, anchor='center')
 
-        ctk.CTkLabel(inner, text='Email', font=('Helvetica', 12, 'bold'),
-                     text_color=TEXT).pack(anchor='w')
+        ctk.CTkLabel(top, text='PiVision', font=('Helvetica', 22, 'bold'),
+                     text_color=TEXT).pack(pady=(12, 2))
+        ctk.CTkLabel(top, text='Sign in to your account', font=('Helvetica', 12),
+                     text_color=DIM).pack()
+
+        # ── Card ───────────────────────────────────────────────────────────
+        card  = ctk.CTkFrame(self, fg_color=BG2, corner_radius=16)
+        card.pack(fill='x', padx=28, pady=20)
+        inner = ctk.CTkFrame(card, fg_color='transparent', corner_radius=0)
+        inner.pack(fill='x', padx=26, pady=24)
+
+        ctk.CTkLabel(inner, text='EMAIL', font=('Helvetica', 10, 'bold'),
+                     text_color=DIM).pack(anchor='w')
         self._email_var   = ctk.StringVar()
         self._email_entry = ctk.CTkEntry(
             inner, textvariable=self._email_var, font=('Helvetica', 13),
-            fg_color='white', text_color='#111827', border_color='#d1d5db',
-            border_width=1, height=42,
+            fg_color=BG3, text_color=TEXT, border_color=BG3,
+            border_width=1, height=42, placeholder_text='you@company.com',
         )
-        self._email_entry.pack(fill='x', pady=(4, 14))
+        self._email_entry.pack(fill='x', pady=(5, 14))
 
-        ctk.CTkLabel(inner, text='Password', font=('Helvetica', 12, 'bold'),
-                     text_color=TEXT).pack(anchor='w')
+        ctk.CTkLabel(inner, text='PASSWORD', font=('Helvetica', 10, 'bold'),
+                     text_color=DIM).pack(anchor='w')
         self._pw_var = ctk.StringVar()
         pw = ctk.CTkEntry(
             inner, textvariable=self._pw_var, font=('Helvetica', 13),
-            fg_color='white', text_color='#111827', border_color='#d1d5db',
+            fg_color=BG3, text_color=TEXT, border_color=BG3,
             border_width=1, height=42, show='•',
         )
-        pw.pack(fill='x', pady=(4, 18))
+        pw.pack(fill='x', pady=(5, 18))
         pw.bind('<Return>', lambda _: self._do_signin())
 
         self._signin_err = ctk.CTkLabel(inner, text='', font=('Helvetica', 11),
@@ -751,7 +763,7 @@ class App(ctk.CTk):
         self._signin_btn = ctk.CTkButton(
             inner, text='Sign In', font=('Helvetica', 13, 'bold'),
             fg_color=ACCENT, hover_color='#2563eb', text_color='white',
-            height=46, command=self._do_signin,
+            height=46, corner_radius=10, command=self._do_signin,
         )
         self._signin_btn.pack(fill='x')
 
@@ -840,27 +852,22 @@ class App(ctk.CTk):
             mode_label = 'People Counter'
             mode_color = ACCENT
 
-        hdr = ctk.CTkFrame(self, fg_color=BG2, corner_radius=0, height=52)
+        hdr = ctk.CTkFrame(self, fg_color=BG2, corner_radius=0, height=58)
         hdr.pack(fill='x')
         hdr.pack_propagate(False)
-        ctk.CTkLabel(hdr, text='PiVision Processor', font=('Helvetica', 15, 'bold'),
-                     text_color=TEXT).pack(side='left', padx=(20, 8))
-        ctk.CTkLabel(hdr, text=mode_label, font=('Helvetica', 11, 'bold'),
+        ctk.CTkLabel(hdr, text='PiVision', font=('Helvetica', 15, 'bold'),
+                     text_color=TEXT).pack(side='left', padx=(20, 6))
+        ctk.CTkLabel(hdr, text=mode_label, font=('Helvetica', 10, 'bold'),
                      text_color='white', fg_color=mode_color, corner_radius=6,
-                     padx=8, pady=2).pack(side='left', pady=14)
+                     padx=9, pady=3).pack(side='left', pady=18)
         ctk.CTkButton(hdr, text='Sign Out', font=('Helvetica', 10),
-                      fg_color=BG3, hover_color=BG3, text_color=DIM, width=80, height=28,
-                      command=self._sign_out).pack(side='right', padx=12)
-        ctk.CTkLabel(hdr, text=s['email'], font=('Helvetica', 10),
-                     text_color=DIM).pack(side='right')
-
-        info = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        info.pack(fill='x', padx=20, pady=(12, 8))
-        ctk.CTkLabel(info, text=f'Company:  {s["companyName"]}', font=('Helvetica', 12),
-                     text_color=DIM).pack(side='left')
+                      fg_color=BG3, hover_color='#475569', text_color=DIM, width=80, height=28,
+                      corner_radius=8, command=self._sign_out).pack(side='right', padx=14)
+        ctk.CTkLabel(hdr, text=f'{s["companyName"]}  ·  {s["email"]}',
+                     font=('Helvetica', 10), text_color=DIM).pack(side='right', padx=(0, 6))
 
         loc_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        loc_row.pack(fill='x', padx=20, pady=(0, 8))
+        loc_row.pack(fill='x', padx=20, pady=(12, 8))
         ctk.CTkLabel(loc_row, text='Location:', font=('Helvetica', 12),
                      text_color=DIM).pack(side='left')
         self._loc_var   = ctk.StringVar()
@@ -1018,26 +1025,27 @@ class App(ctk.CTk):
         ctk.CTkFrame(self, fg_color=BG3, height=1, corner_radius=0).pack(fill='x', pady=(2, 0))
 
         run_row = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        run_row.pack(fill='x', padx=20, pady=14)
+        run_row.pack(fill='x', padx=20, pady=12)
         self._run_btn = ctk.CTkButton(
             run_row, text='Process Video', font=('Helvetica', 13, 'bold'),
             fg_color=SUCCESS, hover_color='#16a34a', text_color='white',
-            height=44, command=self._run,
+            height=42, corner_radius=10, command=self._run,
         )
         self._run_btn.pack(side='left')
         self._status_label = ctk.CTkLabel(run_row, text='', font=('Helvetica', 11),
                                            text_color=DIM)
         self._status_label.pack(side='left', padx=16)
 
-        self._progress = ctk.CTkProgressBar(self, progress_color=ACCENT, fg_color=BG3,
-                                             height=8, corner_radius=4)
+        self._progress = ctk.CTkProgressBar(self, progress_color=ACCENT, fg_color=BG2,
+                                             height=6, corner_radius=3)
         self._progress.pack(fill='x', padx=20, pady=(0, 8))
         self._progress.set(0)
 
         log_wrap = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         log_wrap.pack(fill='both', expand=True, padx=20, pady=(0, 16))
         self._log_text = ctk.CTkTextbox(log_wrap, font=('Menlo', 10),
-                                         fg_color='#0d1117', text_color=DIM)
+                                         fg_color=BG2, text_color=DIM,
+                                         corner_radius=10)
         self._log_text.pack(fill='both', expand=True)
         self._log_text.configure(state='disabled')
 

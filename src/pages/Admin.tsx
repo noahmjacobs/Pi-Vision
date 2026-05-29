@@ -49,8 +49,16 @@ const inputStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
+const MODE_META: Record<string, { label: string; color: string; bg: string }> = {
+  people_counter: { label: 'People Counter', color: '#1d6ef4', bg: 'rgba(29,110,244,0.10)' },
+  car_counter:    { label: 'Car Counter',    color: '#22c55e', bg: 'rgba(34,197,94,0.10)'  },
+  seatbelt:       { label: 'Seatbelt',       color: '#f59e0b', bg: 'rgba(245,158,11,0.10)' },
+}
+
 function CompanyCard({ company, onNavigate }: { company: Company; onNavigate: (page: Page) => void }) {
   const { adminViewAs } = useAuth()
+  const badge = MODE_META[company.mode] ?? { label: company.mode, color: '#6b7280', bg: 'rgba(107,114,128,0.10)' }
+  const locCount = company.devices.length
 
   function enter() {
     const firstDevice = company.devices[0]
@@ -59,13 +67,20 @@ function CompanyCard({ company, onNavigate }: { company: Company; onNavigate: (p
   }
 
   return (
-    <div className="glass-card" style={{ padding: '20px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+    <div className="glass-card" style={{ padding: '18px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{company.name}</div>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 3 }}>
-          {company.devices.length === 0
-            ? 'No cameras'
-            : company.devices.map(d => d.name).join(', ')}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5 }}>
+          <span style={{
+            fontSize: 11, fontWeight: 600,
+            color: badge.color, background: badge.bg,
+            padding: '2px 9px', borderRadius: 20, letterSpacing: '0.2px',
+          }}>
+            {badge.label}
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+            {locCount === 0 ? 'No locations' : `${locCount} location${locCount !== 1 ? 's' : ''}`}
+          </span>
         </div>
       </div>
       <button

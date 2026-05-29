@@ -21,14 +21,26 @@ export default function Login() {
     }
   }
 
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '11px 14px',
+    borderRadius: 12,
+    border: '1px solid var(--glass-border)',
+    background: 'var(--glass-bg)',
+    color: 'var(--text-primary)',
+    fontSize: 14,
+    fontFamily: 'var(--font)',
+    boxSizing: 'border-box',
+    outline: 'none',
+    transition: 'border-color 0.15s, box-shadow 0.15s',
+  }
+
   return (
     <div style={{
       minHeight: '100vh',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'linear-gradient(145deg, #e8edf8 0%, #dde3f0 50%, #e4e8f5 100%)',
-      backgroundAttachment: 'fixed',
       padding: 24,
       position: 'relative',
       overflow: 'hidden',
@@ -36,14 +48,20 @@ export default function Login() {
       {/* Decorative orbs */}
       <div style={{
         position: 'absolute', top: '-10%', left: '-5%',
-        width: 480, height: 480, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(29,110,244,0.12) 0%, transparent 70%)',
+        width: 520, height: 520, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(29,110,244,0.13) 0%, transparent 68%)',
         pointerEvents: 'none',
       }} />
       <div style={{
-        position: 'absolute', bottom: '-8%', right: '-4%',
-        width: 400, height: 400, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(168,85,247,0.09) 0%, transparent 70%)',
+        position: 'absolute', bottom: '-10%', right: '-5%',
+        width: 440, height: 440, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(168,85,247,0.10) 0%, transparent 68%)',
+        pointerEvents: 'none',
+      }} />
+      <div style={{
+        position: 'absolute', top: '55%', left: '60%',
+        width: 280, height: 280, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(20,184,166,0.07) 0%, transparent 68%)',
         pointerEvents: 'none',
       }} />
 
@@ -51,14 +69,14 @@ export default function Login() {
         {/* Logo mark */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 32 }}>
           <div style={{
-            width: 52, height: 52, borderRadius: 16,
-            background: 'rgba(255,255,255,0.85)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255,255,255,0.9)',
-            boxShadow: '0 4px 24px rgba(29,110,244,0.15), 0 1px 4px rgba(0,0,0,0.04)',
+            width: 54, height: 54, borderRadius: 18,
+            background: 'var(--glass-bg-strong)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            border: '1px solid var(--glass-border)',
+            boxShadow: 'var(--glass-shadow)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            marginBottom: 14,
+            marginBottom: 16,
           }}>
             <div style={{
               width: 20, height: 20, borderRadius: '50%',
@@ -66,27 +84,27 @@ export default function Login() {
               boxShadow: '0 0 0 5px rgba(29,110,244,0.18)',
             }} />
           </div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.4px' }}>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
             PiVision
           </div>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 5 }}>
             Sign in to your dashboard
           </div>
         </div>
 
         {/* Glass card */}
         <div style={{
-          background: 'rgba(255,255,255,0.75)',
-          backdropFilter: 'blur(28px)',
-          WebkitBackdropFilter: 'blur(28px)',
-          border: '1px solid rgba(255,255,255,0.92)',
+          background: 'var(--glass-bg-strong)',
+          backdropFilter: 'blur(32px)',
+          WebkitBackdropFilter: 'blur(32px)',
+          border: '1px solid var(--glass-border)',
           borderRadius: 24,
-          boxShadow: '0 8px 40px rgba(0,0,0,0.09), 0 2px 8px rgba(0,0,0,0.04)',
+          boxShadow: 'var(--glass-shadow-lg)',
           padding: '36px 32px',
         }}>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 7, letterSpacing: '0.3px', textTransform: 'uppercase' }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', display: 'block', marginBottom: 7, letterSpacing: '0.6px', textTransform: 'uppercase' }}>
                 Email
               </label>
               <input
@@ -96,32 +114,20 @@ export default function Login() {
                 required
                 autoFocus
                 placeholder="you@company.com"
-                style={{
-                  width: '100%',
-                  padding: '11px 14px',
-                  borderRadius: 12,
-                  border: '1px solid rgba(0,0,0,0.10)',
-                  background: 'rgba(255,255,255,0.6)',
-                  color: 'var(--text-primary)',
-                  fontSize: 14,
-                  fontFamily: 'var(--font)',
-                  boxSizing: 'border-box',
-                  outline: 'none',
-                  transition: 'border-color 0.15s, box-shadow 0.15s',
-                }}
+                style={inputStyle}
                 onFocus={e => {
                   e.target.style.borderColor = 'rgba(29,110,244,0.5)'
-                  e.target.style.boxShadow = '0 0 0 3px rgba(29,110,244,0.1)'
+                  e.target.style.boxShadow   = '0 0 0 3px rgba(29,110,244,0.12)'
                 }}
                 onBlur={e => {
-                  e.target.style.borderColor = 'rgba(0,0,0,0.10)'
-                  e.target.style.boxShadow = 'none'
+                  e.target.style.borderColor = 'var(--glass-border)'
+                  e.target.style.boxShadow   = 'none'
                 }}
               />
             </div>
 
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 7, letterSpacing: '0.3px', textTransform: 'uppercase' }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', display: 'block', marginBottom: 7, letterSpacing: '0.6px', textTransform: 'uppercase' }}>
                 Password
               </label>
               <input
@@ -130,26 +136,14 @@ export default function Login() {
                 onChange={e => setPassword(e.target.value)}
                 required
                 placeholder="••••••••"
-                style={{
-                  width: '100%',
-                  padding: '11px 14px',
-                  borderRadius: 12,
-                  border: '1px solid rgba(0,0,0,0.10)',
-                  background: 'rgba(255,255,255,0.6)',
-                  color: 'var(--text-primary)',
-                  fontSize: 14,
-                  fontFamily: 'var(--font)',
-                  boxSizing: 'border-box',
-                  outline: 'none',
-                  transition: 'border-color 0.15s, box-shadow 0.15s',
-                }}
+                style={inputStyle}
                 onFocus={e => {
                   e.target.style.borderColor = 'rgba(29,110,244,0.5)'
-                  e.target.style.boxShadow = '0 0 0 3px rgba(29,110,244,0.1)'
+                  e.target.style.boxShadow   = '0 0 0 3px rgba(29,110,244,0.12)'
                 }}
                 onBlur={e => {
-                  e.target.style.borderColor = 'rgba(0,0,0,0.10)'
-                  e.target.style.boxShadow = 'none'
+                  e.target.style.borderColor = 'var(--glass-border)'
+                  e.target.style.boxShadow   = 'none'
                 }}
               />
             </div>
@@ -158,8 +152,8 @@ export default function Login() {
               <div style={{
                 fontSize: 13, color: '#ef4444',
                 padding: '9px 13px',
-                background: 'rgba(239,68,68,0.07)',
-                border: '1px solid rgba(239,68,68,0.15)',
+                background: 'rgba(239,68,68,0.08)',
+                border: '1px solid rgba(239,68,68,0.18)',
                 borderRadius: 10,
               }}>
                 {error}
@@ -170,7 +164,7 @@ export default function Login() {
               type="submit"
               disabled={loading}
               style={{
-                marginTop: 4,
+                marginTop: 6,
                 padding: '12px',
                 borderRadius: 12,
                 border: 'none',
@@ -181,7 +175,7 @@ export default function Login() {
                 fontFamily: 'var(--font)',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 letterSpacing: '-0.1px',
-                boxShadow: loading ? 'none' : '0 2px 12px rgba(29,110,244,0.35)',
+                boxShadow: loading ? 'none' : '0 2px 14px rgba(29,110,244,0.38)',
                 transition: 'background 0.15s, box-shadow 0.15s, transform 0.1s',
               }}
               onMouseEnter={e => { if (!loading) (e.target as HTMLButtonElement).style.transform = 'translateY(-1px)' }}
